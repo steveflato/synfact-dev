@@ -854,3 +854,11 @@ active replay, zero-only saturation, all six source groups, overlap fallback,
 matrix deactivation/reactivation and the 64-block audit boundary. SRAM and LFO
 heap must remain identical to native stock; each selected group and transition
 must actually reach partial execution. The same test also runs against 1.3.
+
+microtune-st (draft, no module yet): `tests/test_st_microtune.py [--cc cc]
+[--cross m68k-elf-gcc]` checks that `mods/microtune-st/tunings.h` matches
+`tools/microtune.py`, that POOLE ROD12 equals its .scl and bad scales are
+refused, and compares `tune.h`'s `mt_map` with an exact reference for every
+factory tuning and root (semitones exact, 12-TET the identity, pitch rising,
+offsets clamped). With a cross compiler it also builds the headers for
+ColdFire; without one that part is skipped.
