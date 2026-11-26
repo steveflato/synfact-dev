@@ -24,7 +24,7 @@ MOD = ROOT / 'mods/microtune-st'
 sys.path.insert(0, str(ROOT))
 
 from unicorn import Uc, UC_ARCH_M68K, UC_MODE_BIG_ENDIAN, UC_HOOK_CODE   # noqa: E402
-from unicorn.m68k_const import UC_CPU_M68K_CFV4E, UC_M68K_REG_A7, UC_M68K_REG_D0  # noqa: E402
+from unicorn.m68k_const import UC_CPU_M68K_CFV4E, UC_M68K_REG_A7, UC_M68K_REG_D0, UC_M68K_REG_SR  # noqa: E402
 
 CODE, DATA, STOP = 0x46100000, 0x48000000, 0x46fffff0
 EVENT, ARGS, RESULT, HOST, UI, API, INTEREST = (DATA + o for o in (0, 0x100, 0x200, 0x300, 0x400, 0x500, 0x600))
@@ -71,8 +71,8 @@ class Unit:
         if write:
             self.prefs[key] = list(struct.unpack('>%dI' % n, u.mem_read(v, 4 * n)))
             r = 1
-        elif key in self.prefs:
-            u.mem_write(v, struct.pack('>%dI' % n, *self.prefs[key][:n]))
+        elif key in self.prefs and len(self.prefs[key]) == n:      # the core: another length reads as absent
+            u.mem_write(v, struct.pack('>%dI' % n, *self.prefs[key]))
             r = 1
         else:
             r = 0
@@ -93,7 +93,8 @@ class Unit:
         u = self.u
         sp = 0x46f00000 - 4 * len(args) - 4
         u.mem_write(sp, struct.pack('>%dI' % (len(args) + 1), STOP, *args))
-        u.reg_write(UC_M68K_REG_A7, sp)
+        u.reg_write(UC_M68K_REG_SR, 0x2000)          # supervisor, as the OS (the module masks IRQs around native_interest);
+        u.reg_write(UC_M68K_REG_A7, sp)              # set first: it swaps the stack pointers
         u.emu_start(fn, STOP, count=200000)
         return u.reg_read(UC_M68K_REG_D0)
 
@@ -180,14 +181,17 @@ def check_init(image, sym, offs):
         u = start(image, sym, offs, version)
         assert u.rc == 1 and not u.interest, version
     u = start(image, sym, offs, 21)
-    assert u.rc == 0 and u.interest == [(sym['mt_native'], 1 << PITCH)], u.interest
+    # nothing is tuned yet: registered once with an empty mask (an unregistered subscriber would hear every op)
+    assert u.rc == 0 and u.interest == [(sym['mt_native'], 0)], u.interest
     assert u.desc[3] == 2
     u.call(sym['mt_settings'], [0x48009000])
     assert u.rows == [(0x48009000, (sym['mt_tuning_label'], sym['mt_tuning_select'], sym['mt_draw'],
                                     sym['mt_tuning_change'])),
                       (0x48009000, (sym['mt_root_label'], sym['mt_root_select'], sym['mt_draw'],
-                                    sym['mt_root_change']))], u.rows
-    print('init: refuses host API < 21; registers PITCH interest only; two SETTINGS rows through additem')
+                                    sym['mt_root_change'])),
+                      (0x48009000, (sym['mt_tracks_label'], sym['mt_tracks_select'], sym['mt_draw'],
+                                    sym['mt_tracks_change']))], u.rows
+    print('init: refuses host API < 21; registers once with no interest; three SETTINGS rows through additem')
 
 
 def check_map(image, sym, offs):
@@ -234,21 +238,89 @@ def check_map(image, sym, offs):
           'other ops and NULL args respected; YES/LEFT/RIGHT step and wrap, redraw' % cases)
 
 
+def check_mask(image, sym, offs):
+    tunings = factory()
+    fn = DATA + 0x900
+    u = start(image, sym, offs, 21)
+    u.u.mem_write(fn, struct.pack('>I', VIEW))
+    live = lambda: u.interest[-1][1]
+    assert u.text('mt_tracks_text') == 'ALL ON'
+    for _ in range(9):
+        u.call(sym['mt_tuning_select'], [fn])                                          # ... ARABIC RAST
+    assert u.text('mt_tuning_text') == 'TUNING: ARABIC RAST' and live() == 1 << PITCH
+    ref_all = [ref(tunings[8], 0, p) for p in SWEEP]
+    assert u.pitch(SWEEP)[1] == ref_all
+    u.call(sym['mt_tracks_change'], [fn, 1])                                           # ALL -> T1
+    assert u.text('mt_tracks_text') == 'T1 ON'
+    inv = len(u.invalidated)
+    n_prefs = len(u.pref_calls)
+    u.call(sym['mt_tracks_select'], [fn])
+    assert u.text('mt_tracks_text') == 'T1 OFF'
+    got = u.pitch(SWEEP)[1]
+    assert got[0] == SWEEP[0] and got[1:] == ref_all[1:] and live() == 1 << PITCH
+    u.call(sym['mt_tracks_change'], [fn, 1])
+    for _ in range(10):
+        u.call(sym['mt_tracks_change'], [fn, 1])                                       # T2 .. T11
+    assert u.text('mt_tracks_text') == 'T12 ON'
+    u.call(sym['mt_tracks_select'], [fn])
+    got = u.pitch(SWEEP)[1]
+    assert got[0] == SWEEP[0] and got[11] == SWEEP[11] and got[1:11] == ref_all[1:11]
+    u.call(sym['mt_tracks_change'], [fn, 1])                                           # -> ALL
+    assert u.text('mt_tracks_text') == 'ALL SOME'
+    u.call(sym['mt_tracks_select'], [fn])                                              # some -> all on
+    assert u.text('mt_tracks_text') == 'ALL ON' and u.pitch(SWEEP)[1] == ref_all
+    u.call(sym['mt_tracks_select'], [fn])                                              # all on -> all off
+    assert u.text('mt_tracks_text') == 'ALL OFF' and live() == 0 and u.pitch(SWEEP) == (0, SWEEP)
+    u.call(sym['mt_tracks_select'], [fn])
+    assert live() == 1 << PITCH and u.pitch(SWEEP)[1] == ref_all
+    # a flat tuning (12-TET) and OFF clear the interest too
+    u.call(sym['mt_tuning_change'], [fn, 0xffffffff])                                  # ... VALLOTTI .. back down
+    u.call(sym['mt_tuning_select'], [fn])
+    while u.text('mt_tuning_text') != 'TUNING: 12-TET':
+        u.call(sym['mt_tuning_select'], [fn])
+    assert live() == 0 and u.pitch(SWEEP) == (0, SWEEP)
+    u.call(sym['mt_tuning_select'], [fn])
+    assert live() == 1 << PITCH
+    while u.text('mt_tuning_text') != 'TUNING: OFF':
+        u.call(sym['mt_tuning_select'], [fn])
+    assert live() == 0 and u.pitch(SWEEP) == (0, SWEEP)
+    # moving the cursor redraws but writes no preference; a switch writes one
+    n = len(u.pref_calls)
+    u.call(sym['mt_tracks_change'], [fn, 1])
+    assert len(u.pref_calls) == n and u.invalidated[-1] == VIEW + 0x38
+    u.call(sym['mt_tracks_select'], [fn])
+    assert len(u.pref_calls) == n + 1
+    # the interest only ever moves between 0 and PITCH, and only on a change
+    seq = [m for _, m in u.interest]
+    assert set(seq) == {0, 1 << PITCH} and all(a != b for a, b in zip(seq, seq[1:]))
+    print('mask: T1..T12 and ALL switch per track on a tuned pitch array; interest is PITCH only while a '
+          'non-flat tuning is on for at least one track (12-TET, OFF and no track clear it); cursor moves write nothing')
+
+
 def check_prefs(image, sym, offs):
     fn = DATA + 0x900
     u = start(image, sym, offs, 21)
-    assert u.pref_calls == [(4, 2, 0)] and u.text('mt_tuning_text') == 'TUNING: OFF'
+    assert u.pref_calls == [(4, 3, 0)] and u.text('mt_tuning_text') == 'TUNING: OFF'
     u.call(sym['mt_tuning_change'], [fn, 0xffffffff])
     u.call(sym['mt_root_change'], [fn, 1])
-    assert u.prefs[4] == [10, 1] and u.pref_calls[-1] == (4, 2, 1)
+    assert u.prefs[4] == [10, 1, 0xfff] and u.pref_calls[-1] == (4, 3, 1)
     v = start(image, sym, offs, 21, stored=u.prefs[4])                               # power-on: kept
     assert v.text('mt_tuning_text') == 'TUNING: POOLE ROD12' and v.text('mt_root_text') == 'TUNE ROOT: C#'
     tunings = factory()
     assert v.pitch(SWEEP)[1] == [ref(tunings[9], 1, p) for p in SWEEP]                # applied at start
-    for bad in ([11, 0], [3, 12], [0xffffffff, 0]):
+    u.call(sym['mt_tracks_change'], [fn, 1])
+    u.call(sym['mt_tracks_select'], [fn])                                              # T1 off
+    assert u.prefs[4] == [10, 1, 0xffe]
+    v = start(image, sym, offs, 21, stored=u.prefs[4])
+    got = v.pitch(SWEEP)[1]
+    assert got[0] == SWEEP[0] and got[1:] == [ref(tunings[9], 1, p) for p in SWEEP[1:]]
+    assert v.interest[-1] == (sym['mt_native'], 1 << PITCH)                            # tuned at start
+    for bad in ([11, 0, 0xfff], [3, 12, 0xfff], [3, 0, 0x1000], [0xffffffff, 0, 0xfff]):
         w = start(image, sym, offs, 21, stored=bad)
         assert w.text('mt_tuning_text') == 'TUNING: OFF' and w.text('mt_root_text') == 'TUNE ROOT: C', bad
-    print('prefs: reads key 4 {tuning, root} at start and applies it, writes each change, '
+    old = start(image, sym, offs, 21, stored=[5, 3])                                   # 2-word prototype record
+    assert old.text('mt_tuning_text') == 'TUNING: OFF' and old.interest == [(sym['mt_native'], 0)]
+    print('prefs: reads key 4 {tuning, root, track mask} at start and applies it, writes each change, '
           'out-of-range values ignored')
 
 
@@ -262,6 +334,7 @@ def main():
     offs = offsets(args.cc)
     check_init(image, sym, offs)
     check_map(image, sym, offs)
+    check_mask(image, sym, offs)
     check_prefs(image, sym, offs)
 
 

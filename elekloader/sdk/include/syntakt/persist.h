@@ -17,5 +17,5 @@ struct st_persistence_api {
 };
 #define ST_PREF_RECORDER 1u
 #define ST_PREF_KIT_BANK 2u
-#define ST_PREF_MICROTUNE 4u   /* microtune-st: {tuning + 1 or 0 off, root} */
+#define ST_PREF_MICROTUNE 4u   /* microtune-st: {tuning (0 off), root, track mask} */
 #endif
