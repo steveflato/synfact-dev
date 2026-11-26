@@ -1,4 +1,4 @@
-"""perffx-st 0.3.1: the key handling and the two engines in Unicorn.
+"""perffx-st 0.3.2: the key handling and the two engines in Unicorn.
 
 Compiles mods/perffx-st/main.c with the configured ColdFire compiler, links it
 alone and calls it. It checks: the module refuses a host before API 21 and
@@ -9,7 +9,7 @@ pressed and released, and other keys pass; each pitch effect (jumps, the five
 ramps), their sum and the clamps move the 12 pitches as the table says, the
 interest is PITCH while one is down and 0 after; the gate drops note-ons of
 the tracks it names (the sequencer's and live ones) and passes note-offs; NO
-keys are momentary, and FUNC while some are held latches them (a press of a latched one: off); PAGE switches the two banks; FUNC + a trig
+keys are momentary, and FUNC while some are held latches them (on a latched one: off); PAGE switches the two banks; FUNC + a trig
 key includes or excludes a track for the pitch effects and the mutes; NO closes,
 frees every key and every latch and takes its own release; nothing is drawn
 while closed.
@@ -290,8 +290,25 @@ def check_latch(image, sym, offs):
     assert u.pitch(base)[1] == base
     rel(u, 1)
     assert u.pitch(base)[1] == [p + 12 * SEMI for p in base]
-    assert u.key(trig(0), DOWN) == 1 and u.key(trig(0), UP) == 1                     # a press of the latched one: off
+    hold(u, 0); rel(u, 0)                                                            # a press of a latched one alone changes nothing
+    assert u.pitch(base)[1] == [p + 12 * SEMI for p in base]
+    hold(u, 0)
+    assert u.key(KEY_FUNC, DOWN) == 1                                                # latched + FUNC: unlatched, still on while held
+    assert u.pitch(base)[1] == [p + 12 * SEMI for p in base] and on(u) == (sym['pf_native'], 1 << PITCH)
+    assert rel(u, 0) == 1 and u.key(KEY_FUNC, UP) == 1                               # the key goes: off
     assert on(u) == (sym['pf_native'], 0) and u.pitch(base)[1] == base
+    hold(u, 0); hold(u, 2); u.key(KEY_FUNC, DOWN); rel(u, 0); rel(u, 2); u.key(KEY_FUNC, UP)   # latch two
+    assert u.pitch(base)[1] == [p + 19 * SEMI for p in base]
+    hold(u, 0); hold(u, 3)                                                           # one latched, one not: FUNC toggles each
+    u.key(KEY_FUNC, DOWN)
+    assert u.pitch(base)[1] == [p + 12 * SEMI for p in base]                         # 0 held (+12), 2 latched (+7), 3 latched (-7)
+    rel(u, 0); rel(u, 3); u.key(KEY_FUNC, UP)
+    assert u.pitch(base)[1] == base and on(u) == (sym['pf_native'], 1 << PITCH)       # 0 is off; 2 and 3 stay latched, +7 and -7
+    hold(u, 2); u.key(KEY_FUNC, DOWN); rel(u, 2); u.key(KEY_FUNC, UP)                # unlatch 2: only -7 is left
+    assert u.pitch(base)[1] == [p - 7 * SEMI for p in base]
+    assert u.key(KEY_NO, DOWN) == 1                                                  # clear for the rest
+    u.key(KEY_NO, UP)
+    u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP); u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP)
     hold(u, 2); hold(u, 10); hold(u, 4)                                              # three held: +7, mute all, tape stop
     u.key(KEY_FUNC, DOWN)                                                            # one FUNC latches all three
     rel(u, 2); rel(u, 10); rel(u, 4); u.key(KEY_FUNC, UP)
@@ -312,7 +329,7 @@ def check_latch(image, sym, offs):
     # FUNC then a trig key is still the track toggle, not a latch
     hold(u, 0)
     assert u.key(trig(1), DOWN | 2) == 1                                             # (FUNC already down: the flag says so)
-    print('latch: FUNC while keys are held latches them and the keys can go; a press of a latched effect turns it off; NO clears')
+    print('latch: FUNC while keys are held latches them and the keys can go; FUNC with a latched effect held unlatches it; NO clears')
 
 
 def check_banks(image, sym, offs):

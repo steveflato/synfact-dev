@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * perffx-st 0.3.1 (prototype): performance effects on the 16 trig keys. See README.md.
+ * perffx-st 0.3.2 (prototype): performance effects on the 16 trig keys. See README.md.
  *
  * Double-tap TRK to open (the first tap keeps its native action; the second
  * is taken, as the recorder does with SOUND). While it is open the 16 trig
  * keys are effects: hold to apply and release to resume. Press FUNC while
- * one or more are held and they latch on, so the keys can be let go; press
- * a latched effect's key to turn it off. PAGE switches the two banks, FUNC
+ * one or more are held and each toggles its latch: an effect that was not
+ * latched latches on (so the key can be let go), one that was latched is
+ * unlatched (and goes off when its key does). PAGE switches the two banks, FUNC
  * then a trig key 1..12 includes or excludes that track, FUNC then 13
  * includes all. NO closes it and turns everything off. Other keys (PLAY, STOP, FUNC, the
  * encoders) stay native.
@@ -227,11 +228,14 @@ int pf_key(void *brain, const void *ev)
         if (!repeat) { pf_swallow |= 1u << PF_KEY_NO; pf_close(); }
         return 1;
     }
-    if (key == PF_KEY_FUNC) {                      /* FUNC while effects are held: they latch, and the keys can go */
+    if (key == PF_KEY_FUNC) {                      /* FUNC while effects are held: each toggles its latch */
+        unsigned int on, off;
         if (repeat) return (pf_swallow >> PF_KEY_FUNC) & 1u;
         if (!pf_phys) return 0;                    /* otherwise native, for FUNC + a trig key */
-        pf_latch |= pf_phys;
-        pf_phys = 0;
+        on = pf_phys & ~pf_latch;                  /* not latched: latch, and the key can go */
+        off = pf_phys & pf_latch;                  /* latched: unlatch; still on until its key goes */
+        pf_latch = (pf_latch | on) & ~off;
+        pf_phys = off;
         pf_swallow |= 1u << PF_KEY_FUNC;
         pf_refresh();
         return 1;
@@ -254,8 +258,7 @@ int pf_key(void *brain, const void *ev)
         id = pf_bank * 16u + k;
         pf_key_fx[k] = (unsigned char)id;
         if (PF_FX(id)->kind) {
-            if (pf_latch >> id & 1u) pf_latch &= ~(1u << id);       /* a latched effect: this press turns it off */
-            else pf_phys |= 1u << id;                                /* otherwise on while the key is down */
+            pf_phys |= 1u << id;                                     /* on while the key is down (a latched one stays on after) */
             pf_refresh();
         }
         return 1;

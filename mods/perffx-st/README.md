@@ -1,4 +1,4 @@
-# perffx-st: performance effects on the trig keys (prototype 0.3.1)
+# perffx-st: performance effects on the trig keys (prototype 0.3.2)
 
 A test build for the design in Discussion #11. Not for a pull request yet.
 
@@ -10,10 +10,12 @@ effects touch, a dot for each one left out. NO closes it and turns every effect
 off. PLAY, STOP, FUNC and the encoders stay native.
 
 **Hold or latch.** An effect is on while its trig key is down. Press FUNC
-while one or more effect keys are held and they latch on: let the keys go and
-they stay. Press a latched effect's key to turn it off. Held and latched
-effects add up. FUNC with no effect held stays native, so FUNC then a trig key
-still includes or excludes a track.
+while effect keys are held and each toggles its latch: an effect that was not
+latched latches on, so the key can go; one that was latched is unlatched, and
+goes off when its key does. So the same combo, effect + FUNC, turns latching on
+and off. Pressing a latched effect's key without FUNC changes nothing. NO turns
+every effect off. Held and latched effects add up. FUNC with no effect held
+stays native, so FUNC then a trig key still includes or excludes a track.
 
 **Banks.** PAGE switches between the two banks. A key held across a switch
 keeps the effect it started.
