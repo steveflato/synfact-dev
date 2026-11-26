@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * perffx-st 0.5.1 (prototype): performance effects on the 16 trig keys. See README.md.
+ * perffx-st 0.5.2 (prototype): performance effects on the 16 trig keys. See README.md.
  *
  * Double-tap TRK to open (the first tap keeps its native action; the second
  * is taken, as the recorder does with SOUND). While it is open the 16 trig
@@ -69,7 +69,7 @@ static const struct pf_fx pf_table[2][16] = {{
     {"SEMI UP",    1,   1 * PF_SEMI, 0, 0},
     {"SEMI DOWN",  1,  -1 * PF_SEMI, 0, 0},
     {"LONG STOP",  2, -96 * PF_SEMI, 350, 0},       /* about 12 s */
-    {"TRITONE",    1,   6 * PF_SEMI, 0, 0},
+    {"STUTTER",    PF_KIND_AUDIO, 0, 0, 0},         /* the audio engine's: only lit and reported here */
     {"SLOW RISE",  2,  24 * PF_SEMI, 105, 0},       /* about 10 s */
     {"",           0,  0, 0, 0},
     {"",           0,  0, 0, 0},

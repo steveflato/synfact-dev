@@ -421,9 +421,11 @@ def check_banks(image, sym, offs):
     hold(u, 4)                                                                       # LONG STOP: about 12 s
     assert u.pitch(base)[1][0] == base[0] - 350
     rel(u, 4)
-    hold(u, 5)                                                                       # TRITONE: a jump
-    assert u.pitch(base)[1] == [p + 6 * SEMI for p in base]
+    hold(u, 5)                                                                       # STUTTER: the audio engine's, nothing here
+    assert on(u) == (sym['pf_native'], 0) and u.pitch(base)[1] == base
+    assert rd(u, sym['pf_state'], 9)[6] == 1 << 21                                   # reported in pf_state.audio (id = 16 + 5)
     rel(u, 5)
+    assert rd(u, sym['pf_state'], 9)[6] == 0
     hold(u, 6)                                                                       # SLOW RISE: about 10 s
     assert u.pitch(base)[1][0] == base[0] + 105
     rel(u, 6)
@@ -531,7 +533,7 @@ def check_view(image, sym, offs):
     assert got[1] == YELLOW and got[5] == YELLOW and got[3] == BLUE
     u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP)                                       # bank 2: its own effects and latches
     got = leds(u)
-    assert got[1] == BLUE and got[5] == ORANGE and got[6] == BLUE and got[8] == UNLIT and got[11] == UNLIT and got[12] == UNLIT and got[13] == UNLIT and got[14] == UNLIT
+    assert got[1] == BLUE and got[5] == ORANGE and got[6] == (2, 26) and got[8] == UNLIT and got[11] == UNLIT and got[12] == UNLIT and got[13] == UNLIT and got[14] == UNLIT
     u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP)
     assert u.key(KEY_TRK, DOWN) == 1                                                 # TRK held: the keys show the tracks
     got = leds(u)

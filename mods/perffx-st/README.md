@@ -26,7 +26,7 @@ keeps the effect it started.
 | 3 | FIFTH UP (+7) | SEMI UP (+1) |
 | 4 | FIFTH DOWN (-7) | SEMI DOWN (-1) |
 | 5 | TAPE STOP (about 3 s) | LONG STOP (about 12 s) |
-| 6 | STOP FAST (about 0.5 s) | TRITONE (+6) |
+| 6 | STOP FAST (about 0.5 s) | STUTTER (audio engine; lit and reported only) |
 | 7 | HALF SPEED (-12 in 0.3 s) | SLOW RISE (+24 in about 10 s) |
 | 8 | DIVE (-36 in about 4 s) | |
 | 9 | RISE (+24 in about 4 s) | |
