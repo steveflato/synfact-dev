@@ -29,8 +29,8 @@ change; ask before guessing an address.
 
 ## What is not recorded
 
-- Which slot is FILTER FREQ / RESONANCE. The names and ranges are in the
-  label table below; the slot of each is not established.
+- A write of Filter Frequency or Resonance: the slot is 28/29 and the row word
+  should be 42/43, but no write was tried.
 - Whether the working copy is rebuilt from the stored values every block
   (then a write in PUBLISH wins, and nothing needs restoring) or kept across
   blocks (then a held effect must restore it). PUBLISH runs after the
@@ -41,41 +41,44 @@ change; ask before guessing an address.
 - Analog tracks 9..12 carry the same rows? Analog voices are on a different
   path (see `poly-st`); not recorded.
 
-## The stock label table (OS 1.42), read from the MAIN image
+## Parameter names and slots (OS 1.42), read from the MAIN image
 
-The names of the engine parameters are a table of 52-byte entries (13 words)
-starting at `0x4022e42c`, 204 entries to `0x40230d68`. In an entry: word 0 the
-long name, 1 the group (Filter, Amp, LFO1, LFO2, Delay, Reverb, Ext-in ...),
-2 the short name, 6 the maximum (`0x7f00` for most), 7 the default (Q8), and
-words 9 to 12 further ids whose meaning is not recorded. The first entries, in
-order: Frequency, Gain, Resonance, Filter Type (Filter); Env. Delay, Attack,
-Decay, Sustain, Release, Env. Depth, Env. Reset, Base, Width (Filter);
-Delay Time, Attack, Hold, Decay, Sustain, Release, Delay Send, Reverb Send,
-Pan, Volume, Pre/Post FX, Mode (Amp); then LFO1, LFO2, Delay, Reverb and
-Ext-in. The machine's own SYN labels (Sample Rate Redux, Bit Redux,
-Overdrive ...) are strings in the same area (`0x40253c77` to `0x4025413d`), so a
-sample-rate or bit reduction exists as a machine control of some machines,
-not as a track-wide effect. The core's lane table (`fw_lane_ids`,
-`0x40234344`, 54 words) lists engine ids `0..0x35`.
+The machine's own SYN labels (Sample Rate Redux, Bit Redux, Overdrive ...) are
+strings at `0x40253c77` to `0x4025413d`: sample-rate and bit reduction exist
+as controls of some machines (SRR, BR), not as a track-wide effect, so a
+track-wide crusher is an audio effect for the engine. The parameter names
+themselves are in the master table below. (An earlier version of this note
+described a 204-entry table at `0x4022e42c` with the name in word 0; that was
+a misaligned view of this table and is withdrawn.)
 
-**Slot to lane id (the core's `machines.c` and the firmware table).** The core
-builds a 71-entry lane array: slot `i` below 54 gets `fw_lane_ids[i]` (the
-firmware's 54 words at `0x40234344`), and slots 54 to 70 get `0x47 + i - 54`.
-Where the stock list differs from the identity (slot: lane id): 2: 3, 3: 5, 4: 7, 5: 9, 6: 11, 7: 13, 8: 15, 9: 2, 10: 4, 11: 6, 12: 8, 13: 10, 14: 12, 15: 14, 36: 53, 37: 36, 38: 37, 39: 38, 40: 39, 41: 40, 42: 41, 43: 42, 44: 43, 45: 44, 46: 45, 47: 46, 48: 47, 49: 48, 50: 49, 51: 50, 53: 51. Every other slot below 54 maps to
-its own number. So a row word is not always the same number as its lane id,
-and neither is the label table's index. The runtime code that turns an id into
-a name or a slot (`400a6464` and its neighbours) reads RAM tables built at
-start-up (`0x43bdf918`, `0x43bdf6e0`); those are not recorded and are the next
-thing to read.
+**Slot to parameter (digital tracks), from the OS's own tables.** The master
+table is 505 entries of 52 bytes at `0x4022d83c`, indexed by engine id: word 10
+is the long name, 11 the group, 12 the short name. The start-up routine
+`400a5ec4` fills RAM tables, one word per Sound slot, with the engine id of
+that slot's parameter (the first one at `0x43bdf6e0`, 71 words). Running that
+routine alone in Unicorn (the image mapped, `memset` stubbed, nothing else)
+gives, for the digital tracks:
 
-**Index to slot: not established.** The table index plus 39 matches three
-known row words (Base index 12 = row word `0x33`, Width 13 = `0x34`, the Amp
-envelope's first entry 14 = `0x35`, where the AMP routine starts), which is
-why it is tempting. It cannot hold further: the core reserves slots `0x36` to
-`0x46` for machine extended controls, and the Amp Attack would land on `0x36`.
-So the slot of Filter Frequency, Resonance, Delay Send and the rest is still
-to be read from the code that fills the Sound (`400a2e1a`, `core_machine_defaults`)
-or proved on the emulator. A filter or send write must wait for that.
+| Slots | Parameters |
+|---|---|
+| 1 to 8, 9 to 16 | LFO1 and LFO2: speed, multiplier, fade, destination, waveform, start phase, trig mode, depth |
+| 27 to 38 | Filter: type 27, **frequency 28**, **resonance 29**, env depth 30, env delay 31, attack 32, decay 33, sustain 34, release 35, env reset 36, base 37, width 38 |
+| 39 to 51 | Amp: env delay 39, attack 40, hold 41, decay 42, sustain 43, release 44, **delay send 45, reverb send 46, pan 47, volume 48**, pre/post FX 49, mode 50, env reset 51 |
+| 52, 53 | Portamento time, portamento on |
+| 54 to 70 | the machine's extended controls (core-owned) |
+
+Slots 17 to 26 are the machine's own SYN controls. A second table
+(`0x43bdf5c4`) lays out the other track class: Delay, Reverb and Ext-in on
+slots 17 to 43, then Filter (with Filter Pan), Amp (with Drive).
+
+**Slot to AUDIO row word: plus 14, for slots 27 to 53.** The row words that
+the AUDIO routines read, named above, fall on slot + 14: Base (slot 37) is
+word `0x33`, Width (38) `0x34`, the Amp envelope's first entry (39) `0x35`
+where the AMP routine starts, the multimode filter's type (27) is row `+0x52`
+(word 41), and the reset flag (Amp Env Reset, 51) is word `0x41` (65). So
+Filter Frequency (slot 28) should be row word 42 and Resonance (29) word 43.
+That is an inference from these five agreements; it has not been run
+through a write.
 
 ## What each idea needs
 
@@ -89,7 +92,7 @@ or proved on the emulator. A filter or send write must wait for that.
 
 ## Suggested order
 
-1. Establish the slot of each parameter (the label table above gives names and ranges; the slot comes from the Sound-filling code) and record it here.
+1. (Done in these notes) the slot of each parameter. Next, one write on the emulator to confirm the row word (slot + 14).
 2. Prove on the emulator that a PUBLISH subscriber's row writes reach AUDIO's
    rows and that the next block starts from the stock value again.
 3. Then one parameter effect (a filter sweep) as a Perf FX kind, with the same
