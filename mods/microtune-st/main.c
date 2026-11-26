@@ -109,7 +109,9 @@ int mt_native(unsigned int op, const unsigned int *a, unsigned int *result)
 }
 
 /* SETTINGS rows: the four MenuItem callbacks (label, select, draw, change),
- * added with the host's additem, as LIVE MUTE's and KIT BANK's. */
+ * added with the host's additem. The OS calls them through std::function
+ * invokers: select(storage, item), change(storage, item, amount) with amount
+ * -1 for LEFT and +1 for RIGHT (the encoder: its accelerated step, signed). */
 static char mt_line[24] __attribute__((section(".data")));
 static const char mt_notes[12][3] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 
@@ -165,13 +167,13 @@ static void mt_changed(const unsigned int *fn, unsigned int record)
     if (fn && fn[0]) INVALIDATE((char *)fn[0] + 0x38);
 }
 void mt_tuning_select(const unsigned int *fn) { mt_tuning = (mt_tuning + 1u) % (MT_FACTORY + 1u); mt_changed(fn, 1); }
-void mt_tuning_change(const unsigned int *fn, int amount)
+void mt_tuning_change(const unsigned int *fn, void *item, int amount)
 {
     mt_tuning = (mt_tuning + (amount > 0 ? 1u : MT_FACTORY)) % (MT_FACTORY + 1u);
     mt_changed(fn, 1);
 }
 void mt_root_select(const unsigned int *fn) { mt_root = (mt_root + 1u) % 12u; mt_changed(fn, 1); }
-void mt_root_change(const unsigned int *fn, int amount)
+void mt_root_change(const unsigned int *fn, void *item, int amount)
 {
     mt_root = (mt_root + (amount > 0 ? 1u : 11u)) % 12u;
     mt_changed(fn, 1);
@@ -182,13 +184,13 @@ void mt_tracks_select(const unsigned int *fn)
     else mt_mask ^= 1u << mt_cursor;
     mt_changed(fn, 1);
 }
-void mt_tracks_change(const unsigned int *fn, int amount)
+void mt_tracks_change(const unsigned int *fn, void *item, int amount)
 {
     mt_cursor = (mt_cursor + (amount > 0 ? 1u : 12u)) % 13u;
     if (fn && fn[0]) INVALIDATE((char *)fn[0] + 0x38);      /* the cursor is not stored: no write */
 }
 void mt_a4_select(const unsigned int *fn) { mt_a4 = 440; mt_changed(fn, 2); }
-void mt_a4_change(const unsigned int *fn, int amount)
+void mt_a4_change(const unsigned int *fn, void *item, int amount)
 {
     if (amount > 0 && mt_a4 < MT_A4_MAX) mt_a4++;
     else if (amount <= 0 && mt_a4 > MT_A4_MIN) mt_a4--;

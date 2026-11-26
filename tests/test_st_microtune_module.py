@@ -27,6 +27,7 @@ from unicorn import Uc, UC_ARCH_M68K, UC_MODE_BIG_ENDIAN, UC_HOOK_CODE   # noqa:
 from unicorn.m68k_const import UC_CPU_M68K_CFV4E, UC_M68K_REG_A7, UC_M68K_REG_D0, UC_M68K_REG_SR  # noqa: E402
 
 CODE, DATA, STOP = 0x46100000, 0x48000000, 0x46fffff0
+ITEM = 0x44123456          # the OS passes the MenuItem pointer between the storage and the amount
 EVENT, ARGS, RESULT, HOST, UI, API, INTEREST = (DATA + o for o in (0, 0x100, 0x200, 0x300, 0x400, 0x500, 0x600))
 PITCH, PITCHES = 22, DATA + 0xc00
 ADDITEM, VIEW, PREFS, PERSIST = DATA + 0x700, DATA + 0x800, DATA + 0xa00, DATA + 0xb00
@@ -228,13 +229,13 @@ def check_map(image, sym, offs):
     assert u.call(sym['mt_native'], [PITCH, 0, RESULT]) == 0
     u.call(sym['mt_tuning_select'], [fn])                                              # wraps to OFF
     assert u.text('mt_tuning_text') == 'TUNING: OFF' and u.pitch(SWEEP) == (0, SWEEP)
-    u.call(sym['mt_tuning_change'], [fn, 0xffffffff])                                  # LEFT from OFF: last
+    u.call(sym['mt_tuning_change'], [fn, ITEM, 0xffffffff])                                  # LEFT from OFF: last
     assert u.text('mt_tuning_text') == 'TUNING: POOLE ROD12'
-    u.call(sym['mt_tuning_change'], [fn, 1])
+    u.call(sym['mt_tuning_change'], [fn, ITEM, 1])
     assert u.text('mt_tuning_text') == 'TUNING: OFF'
-    u.call(sym['mt_root_change'], [fn, 0xffffffff])
+    u.call(sym['mt_root_change'], [fn, ITEM, 0xffffffff])
     assert u.text('mt_root_text') == 'TUNE ROOT: B'
-    u.call(sym['mt_root_change'], [fn, 1])
+    u.call(sym['mt_root_change'], [fn, ITEM, 1])
     assert u.text('mt_root_text') == 'TUNE ROOT: C'
     u.call(sym['mt_tuning_select'], [0])                                               # no view: no redraw
     assert len(u.invalidated) == 10 * 13 + 5
@@ -254,7 +255,7 @@ def check_mask(image, sym, offs):
     assert u.text('mt_tuning_text') == 'TUNING: ARABIC RAST' and live() == 1 << PITCH
     ref_all = [ref(tunings[8], 0, p) for p in SWEEP]
     assert u.pitch(SWEEP)[1] == ref_all
-    u.call(sym['mt_tracks_change'], [fn, 1])                                           # ALL -> T1
+    u.call(sym['mt_tracks_change'], [fn, ITEM, 1])                                           # ALL -> T1
     assert u.text('mt_tracks_text') == 'T1 ON'
     inv = len(u.invalidated)
     n_prefs = len(u.pref_calls)
@@ -262,14 +263,14 @@ def check_mask(image, sym, offs):
     assert u.text('mt_tracks_text') == 'T1 OFF'
     got = u.pitch(SWEEP)[1]
     assert got[0] == SWEEP[0] and got[1:] == ref_all[1:] and live() == 1 << PITCH
-    u.call(sym['mt_tracks_change'], [fn, 1])
+    u.call(sym['mt_tracks_change'], [fn, ITEM, 1])
     for _ in range(10):
-        u.call(sym['mt_tracks_change'], [fn, 1])                                       # T2 .. T11
+        u.call(sym['mt_tracks_change'], [fn, ITEM, 1])                                       # T2 .. T11
     assert u.text('mt_tracks_text') == 'T12 ON'
     u.call(sym['mt_tracks_select'], [fn])
     got = u.pitch(SWEEP)[1]
     assert got[0] == SWEEP[0] and got[11] == SWEEP[11] and got[1:11] == ref_all[1:11]
-    u.call(sym['mt_tracks_change'], [fn, 1])                                           # -> ALL
+    u.call(sym['mt_tracks_change'], [fn, ITEM, 1])                                           # -> ALL
     assert u.text('mt_tracks_text') == 'ALL SOME'
     u.call(sym['mt_tracks_select'], [fn])                                              # some -> all on
     assert u.text('mt_tracks_text') == 'ALL ON' and u.pitch(SWEEP)[1] == ref_all
@@ -278,7 +279,7 @@ def check_mask(image, sym, offs):
     u.call(sym['mt_tracks_select'], [fn])
     assert live() == 1 << PITCH and u.pitch(SWEEP)[1] == ref_all
     # a flat tuning (12-TET) and OFF clear the interest too
-    u.call(sym['mt_tuning_change'], [fn, 0xffffffff])                                  # ... VALLOTTI .. back down
+    u.call(sym['mt_tuning_change'], [fn, ITEM, 0xffffffff])                                  # ... VALLOTTI .. back down
     u.call(sym['mt_tuning_select'], [fn])
     while u.text('mt_tuning_text') != 'TUNING: 12-TET':
         u.call(sym['mt_tuning_select'], [fn])
@@ -290,7 +291,7 @@ def check_mask(image, sym, offs):
     assert live() == 0 and u.pitch(SWEEP) == (0, SWEEP)
     # moving the cursor redraws but writes no preference; a switch writes one
     n = len(u.pref_calls)
-    u.call(sym['mt_tracks_change'], [fn, 1])
+    u.call(sym['mt_tracks_change'], [fn, ITEM, 1])
     assert len(u.pref_calls) == n and u.invalidated[-1] == VIEW + 0x38
     u.call(sym['mt_tracks_select'], [fn])
     assert len(u.pref_calls) == n + 1
@@ -312,19 +313,19 @@ def check_a4(image, sym, offs):
     u.u.mem_write(fn, struct.pack('>I', VIEW))
     live = lambda: u.interest[-1][1]
     assert u.text('mt_a4_text') == 'A4: 440 HZ' and live() == 0
-    u.call(sym['mt_a4_change'], [fn, 0xffffffff])                                      # LEFT: 439, tuning still OFF
+    u.call(sym['mt_a4_change'], [fn, ITEM, 0xffffffff])                                      # LEFT: 439, tuning still OFF
     assert u.text('mt_a4_text') == 'A4: 439 HZ' and live() == 1 << PITCH
     assert u.pitch(SWEEP)[1] == [p + a4q(439) for p in SWEEP]
     assert u.prefs[5] == [439] and u.pref_calls[-1] == (5, 1, 1) and 4 not in u.prefs, 'only its own record is written'
     for _ in range(7):
-        u.call(sym['mt_a4_change'], [fn, 0xffffffff])
+        u.call(sym['mt_a4_change'], [fn, ITEM, 0xffffffff])
     assert u.text('mt_a4_text') == 'A4: 432 HZ' and a4q(432) == -20819
     for vals in (SWEEP, SWEEP2):
         assert u.pitch(vals)[1] == [p + a4q(432) for p in vals]
     for _ in range(9):                                                                 # ARABIC RAST: tuning, then the offset
         u.call(sym['mt_tuning_select'], [fn])
     assert u.pitch(SWEEP2)[1] == [ref(tunings[8], 0, p) + a4q(432) for p in SWEEP2]
-    u.call(sym['mt_tracks_change'], [fn, 1])
+    u.call(sym['mt_tracks_change'], [fn, ITEM, 1])
     u.call(sym['mt_tracks_select'], [fn])                                              # T1 off: untouched, even the offset
     assert u.pitch(SWEEP)[1][0] == SWEEP[0]
     u.call(sym['mt_tracks_select'], [fn])
@@ -334,10 +335,10 @@ def check_a4(image, sym, offs):
         u.call(sym['mt_tuning_select'], [fn])
     assert live() == 0 and u.pitch(SWEEP) == (0, SWEEP)
     for _ in range(45):
-        u.call(sym['mt_a4_change'], [fn, 1])                                           # RIGHT stops at 480
+        u.call(sym['mt_a4_change'], [fn, ITEM, 1])                                           # RIGHT stops at 480
     assert u.text('mt_a4_text') == 'A4: 480 HZ' and u.pitch(SWEEP)[1] == [p + a4q(480) for p in SWEEP]
     for _ in range(90):
-        u.call(sym['mt_a4_change'], [fn, 0xffffffff])                                  # LEFT stops at 400
+        u.call(sym['mt_a4_change'], [fn, ITEM, 0xffffffff])                                  # LEFT stops at 400
     assert u.text('mt_a4_text') == 'A4: 400 HZ' and u.pitch(SWEEP)[1] == [p + a4q(400) for p in SWEEP]
     # power-on: read back, applied, interest declared; out of range ignored; a 2-record store is independent
     v = start(image, sym, offs, 21, stored_a4=432)
@@ -356,14 +357,14 @@ def check_prefs(image, sym, offs):
     fn = DATA + 0x900
     u = start(image, sym, offs, 21)
     assert u.pref_calls == [(4, 3, 0), (5, 1, 0)] and u.text('mt_tuning_text') == 'TUNING: OFF'
-    u.call(sym['mt_tuning_change'], [fn, 0xffffffff])
-    u.call(sym['mt_root_change'], [fn, 1])
+    u.call(sym['mt_tuning_change'], [fn, ITEM, 0xffffffff])
+    u.call(sym['mt_root_change'], [fn, ITEM, 1])
     assert u.prefs[4] == [10, 1, 0xfff] and u.pref_calls[-1] == (4, 3, 1)
     v = start(image, sym, offs, 21, stored=u.prefs[4])                               # power-on: kept
     assert v.text('mt_tuning_text') == 'TUNING: POOLE ROD12' and v.text('mt_root_text') == 'TUNE ROOT: C#'
     tunings = factory()
     assert v.pitch(SWEEP)[1] == [ref(tunings[9], 1, p) for p in SWEEP]                # applied at start
-    u.call(sym['mt_tracks_change'], [fn, 1])
+    u.call(sym['mt_tracks_change'], [fn, ITEM, 1])
     u.call(sym['mt_tracks_select'], [fn])                                              # T1 off
     assert u.prefs[4] == [10, 1, 0xffe]
     v = start(image, sym, offs, 21, stored=u.prefs[4])
