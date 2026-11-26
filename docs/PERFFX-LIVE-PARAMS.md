@@ -29,8 +29,8 @@ change; ask before guessing an address.
 
 ## What is not recorded
 
-- A write of Filter Frequency or Resonance: the slot is 28/29 and the row word
-  should be 42/43, but no write was tried.
+- A write of Filter Frequency or Resonance: the slots are 28/29, but the row word is
+  42 or 43 (see above) and no write was tried.
 - Whether the working copy is rebuilt from the stored values every block
   (then a write in PUBLISH wins, and nothing needs restoring) or kept across
   blocks (then a held effect must restore it). PUBLISH runs after the
@@ -71,14 +71,21 @@ Slots 17 to 26 are the machine's own SYN controls. A second table
 (`0x43bdf5c4`) lays out the other track class: Delay, Reverb and Ext-in on
 slots 17 to 43, then Filter (with Filter Pan), Amp (with Drive).
 
-**Slot to AUDIO row word: plus 14, for slots 27 to 53.** The row words that
-the AUDIO routines read, named above, fall on slot + 14: Base (slot 37) is
-word `0x33`, Width (38) `0x34`, the Amp envelope's first entry (39) `0x35`
-where the AMP routine starts, the multimode filter's type (27) is row `+0x52`
-(word 41), and the reset flag (Amp Env Reset, 51) is word `0x41` (65). So
-Filter Frequency (slot 28) should be row word 42 and Resonance (29) word 43.
-That is an inference from these five agreements; it has not been run
-through a write.
+**Slot to AUDIO row word: plus 14 fits five words, and one reading disagrees.**
+The row words that the AUDIO routines read, named above, fall on slot + 14:
+Base (slot 37) is word `0x33`, Width (38) `0x34`, the Amp envelope's first
+entry (39) `0x35` where the AMP routine starts, the multimode filter's type
+(27) is row `+0x52` (word 41), and the reset flag (Amp Env Reset, 51) is word
+`0x41` (65). But the multimode filter (`400019d6`) loads its frequency as a
+halfword at its first argument plus 4 (`mvzw 4(a0),d0` at `400019ee`), and
+that argument is documented as row `+0x52`: row word 43, which slot + 14 gives
+to Resonance (29), not Frequency (28). Its second table index comes from its
+third argument, `*(0x80008188 + 4t)`, a word of the native frame, not the row.
+So either the documented argument is row `+0x50`, or the filter's words are
+shifted by one. Not settled, and it was not run: the generic Unicorn faults at
+the first EMAC instruction (`40001b98`; the corrected build is not in this
+environment), and the call site of the routine was not found as a direct call.
+Do not write a row word for a filter until this is resolved.
 
 ## What each idea needs
 
@@ -92,7 +99,7 @@ through a write.
 
 ## Suggested order
 
-1. (Done in these notes) the slot of each parameter. Next, one write on the emulator to confirm the row word (slot + 14).
+1. (Done in these notes) the slot of each parameter. Next, settle the row word of the filter frequency: find the multimode filter's call site and its first argument, or run it in the corrected Unicorn.
 2. Prove on the emulator that a PUBLISH subscriber's row writes reach AUDIO's
    rows and that the next block starts from the stock value again.
 3. Then one parameter effect (a filter sweep) as a Perf FX kind, with the same
