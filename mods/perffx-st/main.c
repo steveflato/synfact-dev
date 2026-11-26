@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * perffx-st 0.4.1 (prototype): performance effects on the 16 trig keys. See README.md.
+ * perffx-st 0.4.2 (prototype): performance effects on the 16 trig keys. See README.md.
  *
  * Double-tap TRK to open (the first tap keeps its native action; the second
  * is taken, as the recorder does with SOUND). While it is open the 16 trig
  * keys are effects: hold to apply and release to resume. Press FUNC while
  * one or more are held and they latch on, so the keys can be let go; press
  * a latched effect's key and it turns off. PAGE switches the two banks, FUNC
- * then a trig key 1..12 includes or excludes that track, FUNC then 13
+ * then a trig key 1..12 includes or excludes that track, FUNC + PAGE
  * includes all. NO closes it and turns everything off. Other keys (PLAY, STOP, FUNC, the
  * encoders) stay native.
  *
@@ -222,7 +222,6 @@ static unsigned int pf_palette(unsigned int k, unsigned int *mode)
     *mode = 2;
     if (pf_func_down) {                            /* FUNC: the tracks the effects touch */
         if (k < PF_TRACKS) return (pf_include >> k & 1u) ? 9u : 4u;
-        if (k == PF_TRACKS) return 25u;            /* all: cyan */
         *mode = 1;
         return 2u;
     }
@@ -375,7 +374,12 @@ int pf_key(void *brain, const void *ev)
         return 1;
     }
     if (key == PF_KEY_PAGE) {
-        if (!repeat) { pf_swallow |= 1u << PF_KEY_PAGE; pf_bank ^= 1u; pf_dirty = 1; }
+        if (!repeat) {
+            pf_swallow |= 1u << PF_KEY_PAGE;
+            if (flags & 2u) pf_include = 0xfffu;                    /* FUNC + PAGE: every track back in */
+            else pf_bank ^= 1u;
+            pf_dirty = 1;
+        }
         return 1;
     }
     if (key >= PF_KEY_TRIG0 && key < PF_KEY_TRIG0 + 16) {
@@ -385,7 +389,6 @@ int pf_key(void *brain, const void *ev)
         if (flags & 2u) {                          /* FUNC + trig: which tracks the effects touch */
             pf_func |= 1u << k;
             if (k < PF_TRACKS) pf_include ^= 1u << k;
-            else if (k == PF_TRACKS) pf_include = 0xfffu;
             pf_dirty = 1;
             return 1;
         }

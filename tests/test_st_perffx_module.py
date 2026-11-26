@@ -427,13 +427,13 @@ def check_include(image, sym, offs):
     hold(u, 10)                                                                      # MUTE ALL skips them
     assert [u.note(t)[0] for t in range(12)] == [0, 1, 0, 1, 0] + [1] * 7
     rel(u, 10)
-    u.key(trig(12), FUNC); u.key(trig(12), UP)                                       # FUNC + 13: all back in
+    assert u.key(KEY_PAGE, FUNC) == 1 and u.key(KEY_PAGE, UP | 2) == 1               # FUNC + PAGE: all back in, no bank switch
     hold(u, 10)
     assert [u.note(t)[0] for t in range(12)] == [1] * 12
     rel(u, 10)
     assert u.key(trig(14), FUNC) == 1 and u.key(trig(14), UP) == 1 and on(u) == (sym['pf_native'], 0)   # FUNC + 15: nothing
     assert u.draw() > 0
-    print('include: FUNC + trig 1..12 toggles a track for pitch and mutes, FUNC + 13 brings all back, no effect starts')
+    print('include: FUNC + trig 1..12 toggles a track for pitch and mutes, FUNC + PAGE brings all back, no effect starts')
 
 
 def check_close(image, sym, offs):
@@ -501,7 +501,7 @@ def check_view(image, sym, offs):
     u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP)
     assert u.key(KEY_FUNC, DOWN) == 0                                                # FUNC alone: native, and the keys show the tracks
     got = leds(u)
-    assert all(got[k] == GREEN for k in range(1, 13)) and got[13] == CYAN and got[14] == UNLIT and got[16] == UNLIT
+    assert all(got[k] == GREEN for k in range(1, 13)) and got[13] == UNLIT and got[14] == UNLIT and got[16] == UNLIT
     u.key(trig(1), DOWN | 2); u.key(trig(1), UP | 2)                                 # track 2 out
     got = leds(u)
     assert got[2] == DIMRED and got[1] == GREEN

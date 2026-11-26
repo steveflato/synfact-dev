@@ -37,8 +37,8 @@ keeps the effect it started.
 | 14-16 | | |
 
 **Which tracks.** All 12 by default. FUNC, then a trig key 1 to 12, includes or
-excludes that track for the pitch effects and the mutes; FUNC + key 13
-includes all again. Kept until power-off, not across it.
+excludes that track for the pitch effects and the mutes; FUNC + PAGE
+includes all again (FUNC + keys 13 to 16 belong to the OS and are not ours). Kept until power-off, not across it.
 
 **How.** Pitch effects edit the 12 tracks' Q16 pitches at `ST_NATIVE_PITCH`
 (core 2.9.0-mt1, host API 21), once per audio block, with the ramps counted in
@@ -59,7 +59,7 @@ declared to the core only while one of its effects is on.
 | yellow | the effect is latched |
 
 With FUNC held, keys 1 to 12 show the tracks instead: green is affected, dim
-red is left out, and key 13 (cyan) brings all back.
+red is left out. FUNC + PAGE brings all back.
 
 The LEDs come from an invisible view the module pushes on the UI stack when it
 opens, made as arp-st makes its own: a View followed by a LedHandler, not
