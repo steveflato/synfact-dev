@@ -1,5 +1,11 @@
 # The .elemod format
 
+Core 2.9.0-mt1 (prototype) / host API 21 adds native operation 22
+(`ST_NATIVE_PITCH`). `ST_NATIVE_OPERATION_LIMIT` becomes 23, so the resident
+native table grows one route word and one interest byte (interest at +92).
+The host record, SMZ4 bytes and project records do not change; a bank built
+for API 20 loads unchanged.
+
 Core 2.9 / host API 20 adds an internal `state-st` service dependency in
 source manifests (`smz_module.services`). It uses ordinary module entries;
 the SMZ4 byte layout and project/lock records do not change. Native service

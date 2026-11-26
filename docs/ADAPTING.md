@@ -1,5 +1,20 @@
 # How to adapt your mod to the Syntakt
 
+## Syntakt core 2.9.0-mt1 (prototype): per-track pitch (host API 21)
+
+Native operation 22, `ST_NATIVE_PITCH`, lets a module retune the twelve audio
+tracks. MAIN's IRQ pass writes each track's Q16 pitch (semitones << 16) to
+`80004688 + 4*track`; the core replaces the stock load at `400a4bb8`
+(`move.l 43bdd4c8,d0`) with a jump to `core_native_pitch`, which calls the bus
+with args `{pitches, 12}` only when a subscriber declared interest, then replays
+the load and resumes at `400a4bbe` with the stock flags. Subscribers edit the
+twelve words in place and return 0; consuming is not used. The call is in
+MAIN's IRQ: no allocation, no UI, no persistence, a fixed small cost per
+track. Check `host->version >= 21` before declaring interest. The operation
+limit becomes 23 and the interest bytes sit 92 bytes after the routes; the
+SMZ layout does not change. `tests/test_st_native_pitch_emu.py` checks the
+site, both paths and the register/flag replay on a built core.
+
 ## Syntakt core 2.9: autonomous parameter storage
 
 Host API 20 appends `host->persistence` (`syntakt/persist.h`): borrowed

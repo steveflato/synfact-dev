@@ -36,7 +36,7 @@ __attribute__((noinline)) u32 core_native_original(u32 op,const u32 *a)
 static u32 *volatile native_profile;
 void core_native_profile(u32 *buffer){native_profile=buffer;}
 #ifdef __mcoldfire__
-_Static_assert(ST_NATIVE_OPERATION_LIMIT==22 && ST_NATIVE_OPERATION_COUNT==18,
+_Static_assert(ST_NATIVE_OPERATION_LIMIT==23 && ST_NATIVE_OPERATION_COUNT==18,
                "resident native service operation/profiler layout");
 /* Private alias for the resident wrapper. Volatile keeps setter stores visible
  * to assembly, including when a callback replaces the profile buffer. */

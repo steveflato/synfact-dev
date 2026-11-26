@@ -51,6 +51,29 @@ core_native_\name:
         clr.l %d5
         jmp 0x400a4b5e
 
+| Host API 21: the 12 tracks' final pitches, after MAIN's loop writes them
+| (400a4b6a..400a4bb6) and before the digital frame copy and analog slots read
+| them. args = {80004688, 12}; subscribers rewrite in place, unconsumed.
+        .globl core_native_pitch
+core_native_pitch:
+        tst.b core_native_interest+22
+        beq.s 98f
+        lea -24(%sp),%sp
+        movem.l %d0-%d1/%a0-%a1,(%sp)
+        lea 0x80004688,%a0
+        move.l %a0,16(%sp)
+        moveq #12,%d0
+        move.l %d0,20(%sp)
+        pea 16(%sp)
+        pea 22
+        jsr core_native
+        addq.l #8,%sp
+        movem.l (%sp),%d0-%d1/%a0-%a1
+        lea 24(%sp),%sp
+98:
+        move.l 0x43bdd4c8,%d0
+        jmp 0x400a4bbe
+
         .globl core_native_immediate
 core_native_immediate:
         tst.b core_native_interest+2

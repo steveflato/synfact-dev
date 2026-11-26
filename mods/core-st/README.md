@@ -1,5 +1,11 @@
 # Syntakt core 2.9.0
 
+**Prototype 2.9.0-mt1: per-track pitch.** Host API 21 adds native
+operation 22, `ST_NATIVE_PITCH`: a module can edit the twelve Q16 track
+pitches MAIN writes at `80004688` before the audio frame reads them (site
+`400a4bb8`, resuming at `400a4bbe`). Without a subscriber, the adapter costs
+one byte test and replays stock. See docs/ADAPTING.md.
+
 **Independent parameter storage.** Host API 20 appends the persistence
 service (`syntakt/persist.h`): encoded Kit capacity/context, the real
 application-owned KitActive notifier and redundant global preferences.
