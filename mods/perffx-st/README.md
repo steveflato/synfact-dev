@@ -25,15 +25,15 @@ keeps the effect it started.
 | 2 | OCT DOWN (-12) | 2 OCT DOWN (-24) |
 | 3 | FIFTH UP (+7) | SEMI UP (+1) |
 | 4 | FIFTH DOWN (-7) | SEMI DOWN (-1) |
-| 5 | TAPE STOP (about 1.3 s) | LONG STOP (about 4 s) |
-| 6 | STOP FAST (about 0.5 s) | SLOW DIVE (-48 in about 3 s) |
-| 7 | HALF SPEED (-12 in 0.3 s) | SLOW RISE (+24 in about 3 s) |
-| 8 | DIVE (-36 in about 0.7 s) | |
-| 9 | RISE (+24 in about 0.7 s) | |
+| 5 | TAPE STOP (about 3 s) | LONG STOP (about 12 s) |
+| 6 | STOP FAST (about 0.5 s) | TRITONE (+6) |
+| 7 | HALF SPEED (-12 in 0.3 s) | SLOW RISE (+24 in about 10 s) |
+| 8 | DIVE (-36 in about 4 s) | |
+| 9 | RISE (+24 in about 4 s) | |
 | 10 | | |
-| 11 | MUTE ALL | MUTE tracks 1-4 |
-| 12 | MUTE ODD tracks | MUTE tracks 5-8 |
-| 13 | MUTE EVEN tracks | MUTE tracks 9-12 |
+| 11 | MUTE ALL | |
+| 12 | MUTE ODD tracks | |
+| 13 | MUTE EVEN tracks | |
 | 14-16 | | |
 
 **Which tracks.** All 12 by default. Hold TRK and tap a trig key 1 to 12 to

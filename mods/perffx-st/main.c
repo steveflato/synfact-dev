@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * perffx-st 0.5.0 (prototype): performance effects on the 16 trig keys. See README.md.
+ * perffx-st 0.5.1 (prototype): performance effects on the 16 trig keys. See README.md.
  *
  * Double-tap TRK to open (the first tap keeps its native action; the second
  * is taken, as the recorder does with SOUND). While it is open the 16 trig
@@ -52,11 +52,11 @@ static const struct pf_fx pf_table[2][16] = {{
     {"OCT DOWN",   1, -12 * PF_SEMI, 0, 0},
     {"FIFTH UP",   1,   7 * PF_SEMI, 0, 0},
     {"FIFTH DOWN", 1,  -7 * PF_SEMI, 0, 0},
-    {"TAPE STOP",  2, -96 * PF_SEMI, 3146, 0},      /* about 1.3 s */
+    {"TAPE STOP",  2, -96 * PF_SEMI, 1398, 0},      /* about 3 s */
     {"STOP FAST",  2, -96 * PF_SEMI, 8988, 0},      /* about 0.5 s */
     {"HALF SPEED", 2, -12 * PF_SEMI, 2621, 0},      /* an octave down in 0.3 s */
-    {"DIVE",       2, -36 * PF_SEMI, 2359, 0},      /* about 0.7 s */
-    {"RISE",       2,  24 * PF_SEMI, 1573, 0},
+    {"DIVE",       2, -36 * PF_SEMI, 393, 0},       /* about 4 s */
+    {"RISE",       2,  24 * PF_SEMI, 262, 0},       /* about 4 s */
     {"",           0,  0, 0, 0},
     {"MUTE ALL",   3,  0, 0, 0xfffu},
     {"MUTE ODD",   3,  0, 0, 0x555u},               /* tracks 1,3,5.. (bit 0 is track 1) */
@@ -68,15 +68,15 @@ static const struct pf_fx pf_table[2][16] = {{
     {"2 OCT DOWN", 1, -24 * PF_SEMI, 0, 0},
     {"SEMI UP",    1,   1 * PF_SEMI, 0, 0},
     {"SEMI DOWN",  1,  -1 * PF_SEMI, 0, 0},
-    {"LONG STOP",  2, -96 * PF_SEMI, 1048, 0},      /* about 4 s */
-    {"SLOW DIVE",  2, -48 * PF_SEMI, 1048, 0},      /* about 3 s */
-    {"SLOW RISE",  2,  24 * PF_SEMI, 524, 0},       /* about 3 s */
+    {"LONG STOP",  2, -96 * PF_SEMI, 350, 0},       /* about 12 s */
+    {"TRITONE",    1,   6 * PF_SEMI, 0, 0},
+    {"SLOW RISE",  2,  24 * PF_SEMI, 105, 0},       /* about 10 s */
     {"",           0,  0, 0, 0},
     {"",           0,  0, 0, 0},
     {"",           0,  0, 0, 0},
-    {"MUTE 1 4",   3,  0, 0, 0x00fu},
-    {"MUTE 5 8",   3,  0, 0, 0x0f0u},
-    {"MUTE 9 12",  3,  0, 0, 0xf00u},
+    {"",           0,  0, 0, 0},
+    {"",           0,  0, 0, 0},
+    {"",           0,  0, 0, 0},
     {"",           0,  0, 0, 0},
     {"",           0,  0, 0, 0},
     {"",           0,  0, 0, 0}}};

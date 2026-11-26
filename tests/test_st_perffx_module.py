@@ -273,12 +273,12 @@ def check_pitch(image, sym, offs):
     assert u.pitch([126 << 16] + [60 << 16] * 11)[1][0] == 127 << 16                 # clamped at 127
     rel(u, 0)
     print('pitch: jumps, their sum and the clamps; interest is PITCH while one is down, 0 after')
-    steps = {4: (-96, 3146), 5: (-96, 8988), 6: (-12, 2621), 7: (-36, 2359), 8: (24, 1573)}
+    steps = {4: (-96, 1398), 5: (-96, 8988), 6: (-12, 2621), 7: (-36, 393), 8: (24, 262)}
     for k, (semis, step) in steps.items():
         target = semis * SEMI
         hold(u, k)
         cur = 0
-        for n in range(1, 2500):
+        for n in range(1, 7000):
             cur = max(cur - step, target) if target < 0 else min(cur + step, target)
             got = u.pitch([(64 << 16)] * 12)[1][0]
             want = min(max((64 << 16) + cur, 0), 127 << 16)
@@ -344,15 +344,15 @@ def check_latch(image, sym, offs):
     rel(u, 2); rel(u, 10); rel(u, 4); u.key(KEY_FUNC, UP)
     assert on(u) == (sym['pf_native'], 1 << PITCH | 1 << NOTE_ACCEPT) and u.note(4)[0] == 1
     first = u.pitch(base)[1][0]
-    assert first == base[0] + 7 * SEMI - 3146 * 1                                    # the latched ramp runs from its start
+    assert first == base[0] + 7 * SEMI - 1398 * 1                                    # the latched ramp runs from its start
     for _ in range(2):
         u.pitch(base)
-    assert u.pitch(base)[1][0] == base[0] + 7 * SEMI - 4 * 3146                      # and keeps going with no key down
+    assert u.pitch(base)[1][0] == base[0] + 7 * SEMI - 4 * 1398                      # and keeps going with no key down
     hold(u, 1); rel(u, 1)                                                            # a hold elsewhere leaves the latches
     assert on(u) == (sym['pf_native'], 1 << PITCH | 1 << NOTE_ACCEPT)
     u.key(trig(10), DOWN); u.key(trig(10), UP)                                       # press the latched mute: only it turns off
     assert on(u) == (sym['pf_native'], 1 << PITCH) and u.note(4)[0] == 0
-    assert u.pitch(base)[1][0] < base[0] + 7 * SEMI - 4 * 3146                       # the pitch latches go on
+    assert u.pitch(base)[1][0] < base[0] + 7 * SEMI - 4 * 1398                       # the pitch latches go on
     assert u.key(KEY_NO, DOWN) == 1                                                  # NO turns every latch off
     assert on(u) == (sym['pf_native'], 0)
     u.key(KEY_NO, UP)
@@ -396,9 +396,9 @@ def check_state(image, sym, offs):
     assert s2['active'] == s2['latched'] == 1 and s2['held'] == 0 and s2['generation'] % 2 == 0
     u.key(KEY_TRK, DOWN); u.key(trig(2), DOWN); u.key(trig(2), UP); u.key(KEY_TRK, UP)
     assert st()['include'] == 0xfff & ~(1 << 2)                                            # a track pick is published
-    u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP); hold(u, 10)                                # bank 2, key 11: an effect with its own id
+    u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP); hold(u, 6)                                 # bank 2, key 7: an effect with its own id
     s3 = st()
-    assert s3['active'] == 1 | 1 << 26 and s3['held'] == 1 << 26 and s3['latched'] == 1, s3   # id = bank * 16 + key
+    assert s3['active'] == 1 | 1 << 22 and s3['held'] == 1 << 22 and s3['latched'] == 1, s3   # id = bank * 16 + key
     u.key(KEY_NO, DOWN); u.key(KEY_NO, UP)
     s4 = st()
     assert s4['open'] == 0 and s4['active'] == 0 and s4['latched'] == 0 and s4['include'] == 0xfff and s4['generation'] % 2 == 0
@@ -413,13 +413,19 @@ def check_banks(image, sym, offs):
     assert u.pitch(base)[1] == [p + 24 * SEMI for p in base]
     rel(u, 0); hold(u, 3)
     assert u.pitch(base)[1] == [p - 1 * SEMI for p in base]
-    rel(u, 3); hold(u, 10)                                                           # MUTE 1 4
-    assert [u.note(t)[0] for t in range(12)] == [1] * 4 + [0] * 8
-    rel(u, 10); hold(u, 12)                                                          # MUTE 9 12
-    assert [u.note(t)[0] for t in range(12)] == [0] * 8 + [1] * 4
-    rel(u, 12)
-    hold(u, 6)                                                                       # SLOW RISE
-    assert u.pitch(base)[1][0] == base[0] + 524
+    rel(u, 3)
+    for k in (10, 11, 12):                                                           # bank 2 has no mutes: keys 11 to 13 do nothing
+        hold(u, k)
+        assert on(u) == (sym['pf_native'], 0)
+        rel(u, k)
+    hold(u, 4)                                                                       # LONG STOP: about 12 s
+    assert u.pitch(base)[1][0] == base[0] - 350
+    rel(u, 4)
+    hold(u, 5)                                                                       # TRITONE: a jump
+    assert u.pitch(base)[1] == [p + 6 * SEMI for p in base]
+    rel(u, 5)
+    hold(u, 6)                                                                       # SLOW RISE: about 10 s
+    assert u.pitch(base)[1][0] == base[0] + 105
     rel(u, 6)
     hold(u, 0)                                                                       # held from bank 2, then back to bank 1
     assert u.key(KEY_PAGE, DOWN) == 1 and u.key(KEY_PAGE, UP) == 1
@@ -525,7 +531,7 @@ def check_view(image, sym, offs):
     assert got[1] == YELLOW and got[5] == YELLOW and got[3] == BLUE
     u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP)                                       # bank 2: its own effects and latches
     got = leds(u)
-    assert got[1] == BLUE and got[5] == ORANGE and got[8] == UNLIT and got[11] == RED and got[14] == UNLIT
+    assert got[1] == BLUE and got[5] == ORANGE and got[6] == BLUE and got[8] == UNLIT and got[11] == UNLIT and got[12] == UNLIT and got[13] == UNLIT and got[14] == UNLIT
     u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP)
     assert u.key(KEY_TRK, DOWN) == 1                                                 # TRK held: the keys show the tracks
     got = leds(u)
