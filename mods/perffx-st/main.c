@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * perffx-st 0.4.2 (prototype): performance effects on the 16 trig keys. See README.md.
+ * perffx-st 0.4.3 (prototype): performance effects on the 16 trig keys. See README.md.
  *
  * Double-tap TRK to open (the first tap keeps its native action; the second
  * is taken, as the recorder does with SOUND). While it is open the 16 trig
  * keys are effects: hold to apply and release to resume. Press FUNC while
  * one or more are held and they latch on, so the keys can be let go; press
  * a latched effect's key and it turns off. PAGE switches the two banks, FUNC
- * then a trig key 1..12 includes or excludes that track, FUNC + PAGE
- * includes all. NO closes it and turns everything off. Other keys (PLAY, STOP, FUNC, the
+ * then a trig key 1..12 includes or excludes that track (all
+ * are back in when the mode is closed). NO closes it and turns everything off. Other keys (PLAY, STOP, FUNC, the
  * encoders) stay native.
  *
  * Two engines, both on the core's native bus, both declared only while a key
@@ -315,6 +315,7 @@ static void pf_close(void)
     pf_open = 0;
     pf_phys = 0;
     pf_latch = 0;
+    pf_include = 0xfffu;                           /* every track is back in the next time */
     pf_refresh();
     if (v) {
         UI_CALL(0x400ffec6u, void (*)(void *))(v);
@@ -374,12 +375,8 @@ int pf_key(void *brain, const void *ev)
         return 1;
     }
     if (key == PF_KEY_PAGE) {
-        if (!repeat) {
-            pf_swallow |= 1u << PF_KEY_PAGE;
-            if (flags & 2u) pf_include = 0xfffu;                    /* FUNC + PAGE: every track back in */
-            else pf_bank ^= 1u;
-            pf_dirty = 1;
-        }
+        if (flags & 2u) return 0;                  /* FUNC + PAGE is the OS's (Length, Scale ...) */
+        if (!repeat) { pf_swallow |= 1u << PF_KEY_PAGE; pf_bank ^= 1u; pf_dirty = 1; }
         return 1;
     }
     if (key >= PF_KEY_TRIG0 && key < PF_KEY_TRIG0 + 16) {

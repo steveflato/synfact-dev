@@ -427,13 +427,15 @@ def check_include(image, sym, offs):
     hold(u, 10)                                                                      # MUTE ALL skips them
     assert [u.note(t)[0] for t in range(12)] == [0, 1, 0, 1, 0] + [1] * 7
     rel(u, 10)
-    assert u.key(KEY_PAGE, FUNC) == 1 and u.key(KEY_PAGE, UP | 2) == 1               # FUNC + PAGE: all back in, no bank switch
+    assert u.key(KEY_PAGE, FUNC) == 0 and u.key(KEY_PAGE, UP | 2) == 0               # FUNC + PAGE stays the OS's
+    u.key(KEY_NO, DOWN); u.key(KEY_NO, UP)                                           # closing puts every track back
+    u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP); u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP)
     hold(u, 10)
     assert [u.note(t)[0] for t in range(12)] == [1] * 12
     rel(u, 10)
     assert u.key(trig(14), FUNC) == 1 and u.key(trig(14), UP) == 1 and on(u) == (sym['pf_native'], 0)   # FUNC + 15: nothing
     assert u.draw() > 0
-    print('include: FUNC + trig 1..12 toggles a track for pitch and mutes, FUNC + PAGE brings all back, no effect starts')
+    print('include: FUNC + trig 1..12 toggles a track for pitch and mutes, closing brings all back, FUNC + PAGE stays native, no effect starts')
 
 
 def check_close(image, sym, offs):
