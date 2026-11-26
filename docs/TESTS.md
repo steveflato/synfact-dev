@@ -958,9 +958,11 @@ offsets clamped). With a cross compiler it also builds the headers for
 ColdFire; without one that part is skipped.
 `tests/test_st_microtune_module.py [--cc m68k-elf-gcc]` builds the module and
 runs it in Unicorn: it refuses host API < 21 and subscribes to PITCH only,
-adds the TUNING, TUNE ROOT and TUNE TRACKS rows, declares PITCH interest only while a
+adds the TUNING, TUNE ROOT, TUNE TRACKS and A4 rows, declares PITCH interest only while a
 non-flat tuning is on for at least one track (OFF, 12-TET and no track clear it), leaves pitches alone while OFF, moves
 them exactly as `mt_map` for every tuning and root (in place, never
-consuming, `count` respected), steps and wraps both rows, applies the track mask, and reads/writes
+consuming, `count` respected), steps and wraps both rows, applies the track mask, checks the A4 reference (400..480 Hz in Q16
+against `12*log2(Hz/440)`, with TUNING OFF and on top of a tuning, in its own
+record, key 5), and reads/writes
 preferences key 4 (tuning, root, mask; a 2-word record reads as absent) with out-of-range values ignored. Without a ColdFire
 compiler it prints SKIP.

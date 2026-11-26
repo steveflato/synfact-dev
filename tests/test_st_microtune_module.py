@@ -16,7 +16,7 @@ It does not run the real OS or the core's dispatcher
 
     python tests/test_st_microtune_module.py [--cc m68k-elf-gcc]
 """
-import argparse, os, shutil, struct, subprocess, sys, tempfile
+import argparse, math, os, shutil, struct, subprocess, sys, tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -157,10 +157,12 @@ SWEEP2 = [(60 << 16) + 0x8000, (61 << 16) + 0x1234, (35 << 16) + 0xffff, -(3 << 
           (72 << 16) + 0x4000, (59 << 16) + 0xc000, (64 << 16) + 1, (71 << 16) + 0xfff0, (55 << 16), (66 << 16) + 0x8001]
 
 
-def start(image, sym, offs, version, stored=None):
+def start(image, sym, offs, version, stored=None, stored_a4=None):
     u = Unit(image, sym)
     if stored is not None:
         u.prefs[4] = list(stored)
+    if stored_a4 is not None:
+        u.prefs[5] = [stored_a4]
     desc = struct.unpack('>4I', image[sym['microtune_module'] - CODE:sym['microtune_module'] - CODE + 16])
     u.u.mem_write(HOST, struct.pack('>I', version) + b'\0' * 0x100)
     u.u.mem_write(HOST + offs[1], struct.pack('>I', INTEREST))
@@ -190,8 +192,10 @@ def check_init(image, sym, offs):
                       (0x48009000, (sym['mt_root_label'], sym['mt_root_select'], sym['mt_draw'],
                                     sym['mt_root_change'])),
                       (0x48009000, (sym['mt_tracks_label'], sym['mt_tracks_select'], sym['mt_draw'],
-                                    sym['mt_tracks_change']))], u.rows
-    print('init: refuses host API < 21; registers once with no interest; three SETTINGS rows through additem')
+                                    sym['mt_tracks_change'])),
+                      (0x48009000, (sym['mt_a4_label'], sym['mt_a4_select'], sym['mt_draw'],
+                                    sym['mt_a4_change']))], u.rows
+    print('init: refuses host API < 21; registers once with no interest; four SETTINGS rows through additem')
 
 
 def check_map(image, sym, offs):
@@ -297,10 +301,61 @@ def check_mask(image, sym, offs):
           'non-flat tuning is on for at least one track (12-TET, OFF and no track clear it); cursor moves write nothing')
 
 
+def a4q(hz):
+    return round(12 * math.log2(hz / 440) * 65536)
+
+
+def check_a4(image, sym, offs):
+    tunings = factory()
+    fn = DATA + 0x900
+    u = start(image, sym, offs, 21)
+    u.u.mem_write(fn, struct.pack('>I', VIEW))
+    live = lambda: u.interest[-1][1]
+    assert u.text('mt_a4_text') == 'A4: 440 HZ' and live() == 0
+    u.call(sym['mt_a4_change'], [fn, 0xffffffff])                                      # LEFT: 439, tuning still OFF
+    assert u.text('mt_a4_text') == 'A4: 439 HZ' and live() == 1 << PITCH
+    assert u.pitch(SWEEP)[1] == [p + a4q(439) for p in SWEEP]
+    assert u.prefs[5] == [439] and u.pref_calls[-1] == (5, 1, 1) and 4 not in u.prefs, 'only its own record is written'
+    for _ in range(7):
+        u.call(sym['mt_a4_change'], [fn, 0xffffffff])
+    assert u.text('mt_a4_text') == 'A4: 432 HZ' and a4q(432) == -20819
+    for vals in (SWEEP, SWEEP2):
+        assert u.pitch(vals)[1] == [p + a4q(432) for p in vals]
+    for _ in range(9):                                                                 # ARABIC RAST: tuning, then the offset
+        u.call(sym['mt_tuning_select'], [fn])
+    assert u.pitch(SWEEP2)[1] == [ref(tunings[8], 0, p) + a4q(432) for p in SWEEP2]
+    u.call(sym['mt_tracks_change'], [fn, 1])
+    u.call(sym['mt_tracks_select'], [fn])                                              # T1 off: untouched, even the offset
+    assert u.pitch(SWEEP)[1][0] == SWEEP[0]
+    u.call(sym['mt_tracks_select'], [fn])
+    u.call(sym['mt_a4_select'], [fn])                                                  # YES: back to 440
+    assert u.text('mt_a4_text') == 'A4: 440 HZ' and u.prefs[5] == [440] and live() == 1 << PITCH   # tuning still on
+    while u.text('mt_tuning_text') != 'TUNING: OFF':
+        u.call(sym['mt_tuning_select'], [fn])
+    assert live() == 0 and u.pitch(SWEEP) == (0, SWEEP)
+    for _ in range(45):
+        u.call(sym['mt_a4_change'], [fn, 1])                                           # RIGHT stops at 480
+    assert u.text('mt_a4_text') == 'A4: 480 HZ' and u.pitch(SWEEP)[1] == [p + a4q(480) for p in SWEEP]
+    for _ in range(90):
+        u.call(sym['mt_a4_change'], [fn, 0xffffffff])                                  # LEFT stops at 400
+    assert u.text('mt_a4_text') == 'A4: 400 HZ' and u.pitch(SWEEP)[1] == [p + a4q(400) for p in SWEEP]
+    # power-on: read back, applied, interest declared; out of range ignored; a 2-record store is independent
+    v = start(image, sym, offs, 21, stored_a4=432)
+    assert v.text('mt_a4_text') == 'A4: 432 HZ' and v.interest[-1] == (sym['mt_native'], 1 << PITCH)
+    assert v.pitch(SWEEP)[1] == [p + a4q(432) for p in SWEEP]
+    for bad in (0, 399, 481, 0xffffffff):
+        w = start(image, sym, offs, 21, stored_a4=bad)
+        assert w.text('mt_a4_text') == 'A4: 440 HZ' and w.interest == [(sym['mt_native'], 0)], bad
+    x = start(image, sym, offs, 21, stored=[10, 1, 0xfff], stored_a4=442)
+    assert x.text('mt_tuning_text') == 'TUNING: POOLE ROD12' and x.text('mt_a4_text') == 'A4: 442 HZ'
+    print('a4: 400..480 Hz in 1 Hz steps match 12*log2(hz/440) in Q16; applied with TUNING OFF and on top of a '
+          'tuning, per track mask kept; YES resets to 440; saved in its own record; out-of-range ignored')
+
+
 def check_prefs(image, sym, offs):
     fn = DATA + 0x900
     u = start(image, sym, offs, 21)
-    assert u.pref_calls == [(4, 3, 0)] and u.text('mt_tuning_text') == 'TUNING: OFF'
+    assert u.pref_calls == [(4, 3, 0), (5, 1, 0)] and u.text('mt_tuning_text') == 'TUNING: OFF'
     u.call(sym['mt_tuning_change'], [fn, 0xffffffff])
     u.call(sym['mt_root_change'], [fn, 1])
     assert u.prefs[4] == [10, 1, 0xfff] and u.pref_calls[-1] == (4, 3, 1)
@@ -335,6 +390,7 @@ def main():
     check_init(image, sym, offs)
     check_map(image, sym, offs)
     check_mask(image, sym, offs)
+    check_a4(image, sym, offs)
     check_prefs(image, sym, offs)
 
 
