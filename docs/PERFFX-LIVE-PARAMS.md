@@ -58,6 +58,16 @@ sample-rate or bit reduction exists as a machine control of some machines,
 not as a track-wide effect. The core's lane table (`fw_lane_ids`,
 `0x40234344`, 54 words) lists engine ids `0..0x35`.
 
+**Slot to lane id (the core's `machines.c` and the firmware table).** The core
+builds a 71-entry lane array: slot `i` below 54 gets `fw_lane_ids[i]` (the
+firmware's 54 words at `0x40234344`), and slots 54 to 70 get `0x47 + i - 54`.
+Where the stock list differs from the identity (slot: lane id): 2: 3, 3: 5, 4: 7, 5: 9, 6: 11, 7: 13, 8: 15, 9: 2, 10: 4, 11: 6, 12: 8, 13: 10, 14: 12, 15: 14, 36: 53, 37: 36, 38: 37, 39: 38, 40: 39, 41: 40, 42: 41, 43: 42, 44: 43, 45: 44, 46: 45, 47: 46, 48: 47, 49: 48, 50: 49, 51: 50, 53: 51. Every other slot below 54 maps to
+its own number. So a row word is not always the same number as its lane id,
+and neither is the label table's index. The runtime code that turns an id into
+a name or a slot (`400a6464` and its neighbours) reads RAM tables built at
+start-up (`0x43bdf918`, `0x43bdf6e0`); those are not recorded and are the next
+thing to read.
+
 **Index to slot: not established.** The table index plus 39 matches three
 known row words (Base index 12 = row word `0x33`, Width 13 = `0x34`, the Amp
 envelope's first entry 14 = `0x35`, where the AMP routine starts), which is
