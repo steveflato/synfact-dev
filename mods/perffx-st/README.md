@@ -76,3 +76,17 @@ in semitones, not a real tape curve.
 
 `tests/test_st_perffx_module.py` runs the compiled module in Unicorn, with the
 OS's view routines stubbed.
+
+## Hand-off to an audio engine
+
+`perffx.h` declares `pf_state`, which the key side keeps current: whether the
+mode is open, which effects are on (`active`, split into `held` and `latched`),
+the ones of kind `PF_KIND_AUDIO` (`audio`), the track include mask and the
+effect the bar names (`shown`). It is written by the UI task only and read by
+anything, including a MAIN IRQ engine: `pf_state_read()` gives a consistent
+copy or 0 (a write was under way; keep the last copy). An effect's id is
+`bank * 16 + key`; bit `id` of a mask is that effect. An audio effect is a row
+of the effect table with kind `PF_KIND_AUDIO`: the key side lights its key
+magenta and reports it, and the engine decides what the id does. The
+sequencer is never touched, so it keeps running underneath.
+

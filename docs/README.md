@@ -50,6 +50,8 @@ and change with the code, so a commit's docs match its code.
 
 - **[Machine reference](MACHINE-REFERENCE.md)**: the limits, the control and page
   mapping, the IDs, the menu and aliases, the audio voice and its calls.
+- **[Perf FX: live parameter writes](PERFFX-LIVE-PARAMS.md)**: what is recorded about
+  changing a track's parameters while it plays, and what is not.
 - **[The AUDIO CPU's memory](AUDIO-MEMORY-MAP.md)**: what the stock AUDIO image
   puts where, traced from its code, and core 2.2's layout: the 4 MiB bank
   window, the pool above AUDIO's own page, the stack's 64 KiB.

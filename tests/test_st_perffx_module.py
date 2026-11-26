@@ -382,6 +382,29 @@ def check_shown(image, sym, offs):
     print('shown: the bar names a held effect over a latched one, the last pressed first, and the latch again when none is held')
 
 
+def check_state(image, sym, offs):
+    u = opened(image, sym, offs)
+    st = lambda: dict(zip('version generation open active held latched audio include shown'.split(), rd(u, sym['pf_state'], 9)))
+    s0 = st()
+    assert s0['version'] == 1 and s0['generation'] % 2 == 0 and s0['open'] == 1           # the version, even (no write under way), open
+    assert s0['active'] == s0['held'] == s0['latched'] == s0['audio'] == s0['shown'] == 0 and s0['include'] == 0xfff
+    hold(u, 0)
+    s1 = st()
+    assert s1['active'] == s1['held'] == 1 and s1['latched'] == 0 and s1['shown'] == 1 and s1['generation'] > s0['generation']
+    u.key(KEY_FUNC, DOWN); rel(u, 0); u.key(KEY_FUNC, UP)
+    s2 = st()
+    assert s2['active'] == s2['latched'] == 1 and s2['held'] == 0 and s2['generation'] % 2 == 0
+    u.key(KEY_TRK, DOWN); u.key(trig(2), DOWN); u.key(trig(2), UP); u.key(KEY_TRK, UP)
+    assert st()['include'] == 0xfff & ~(1 << 2)                                            # a track pick is published
+    u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP); hold(u, 10)                                # bank 2, key 11: an effect with its own id
+    s3 = st()
+    assert s3['active'] == 1 | 1 << 26 and s3['held'] == 1 << 26 and s3['latched'] == 1, s3   # id = bank * 16 + key
+    u.key(KEY_NO, DOWN); u.key(KEY_NO, UP)
+    s4 = st()
+    assert s4['open'] == 0 and s4['active'] == 0 and s4['latched'] == 0 and s4['include'] == 0xfff and s4['generation'] % 2 == 0
+    print('state: pf_state (perffx.h) follows the keys, latches, track picks and closing, with an even generation after each write')
+
+
 def check_banks(image, sym, offs):
     u = opened(image, sym, offs)
     base = [(60 + t) << 16 for t in range(12)]
@@ -562,7 +585,7 @@ def main():
         print('SKIP: no ColdFire compiler'); return
     image, sym = build(args.cc)
     offs = offsets(args.cc)
-    for check in (check_init, check_open, check_keys, check_pitch, check_gate, check_latch, check_shown, check_banks,
+    for check in (check_init, check_open, check_keys, check_pitch, check_gate, check_latch, check_shown, check_state, check_banks,
                   check_include, check_close, check_view):
         check(image, sym, offs)
 

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * perffx-st 0.4.4 (prototype): performance effects on the 16 trig keys. See README.md.
+ * perffx-st 0.5.0 (prototype): performance effects on the 16 trig keys. See README.md.
  *
  * Double-tap TRK to open (the first tap keeps its native action; the second
  * is taken, as the recorder does with SOUND). While it is open the 16 trig
@@ -34,6 +34,7 @@
 #define PF_DOUBLE_TICKS 12u         /* 30 ticks a second: 400 ms */
 #define PF_SEMI (1 << 16)
 #define PF_MAXP (127 << 16)
+#include "perffx.h"
 #define PF_KIND_SEQ 1u
 #define PF_NOTE_ON 1u
 
@@ -42,8 +43,9 @@
 #define PF_VIEW_BYTES 0x50u         /* the view, then its LedHandler (vptr and a 64-bit claim mask) */
 #define PF_LED_BYTES 12u
 
-/* kind: 0 none, 1 jump (instant offset), 2 ramp to a target at a step per
- * audio block (1500 a second), 3 gate */
+/* kind: PF_KIND_* (perffx.h): 0 none, 1 jump (instant offset), 2 ramp to a
+ * target at a step per audio block (1500 a second), 3 gate, 4 audio (the
+ * engine's; only lit and reported here) */
 struct pf_fx { const char *name; unsigned int kind; int target; int step; unsigned int mask; };
 static const struct pf_fx pf_table[2][16] = {{
     {"OCT UP",     1,  12 * PF_SEMI, 0, 0},
@@ -126,6 +128,27 @@ static unsigned int pf_gate_mask(void)
     return m & pf_include;
 }
 
+volatile struct pf_state pf_state __attribute__((section(".data"))) =
+    {PF_STATE_VERSION, 0, 0, 0, 0, 0, 0, 0xfffu, 0};
+unsigned int pf_shown(void);
+/* The hand-off (perffx.h): after every change of the effects, the mode or the tracks. */
+static void pf_publish(void)
+{
+    unsigned int k, audio = 0;
+    for (k = 0; k < 32; k++) if ((pf_held >> k & 1u) && PF_FX(k)->kind == PF_KIND_AUDIO) audio |= 1u << k;
+    pf_state.generation++;
+    __asm__ volatile("" ::: "memory");
+    pf_state.open = pf_open;
+    pf_state.active = pf_held;
+    pf_state.held = pf_phys;
+    pf_state.latched = pf_latch;
+    pf_state.audio = audio;
+    pf_state.include = pf_include;
+    pf_state.shown = pf_shown();
+    __asm__ volatile("" ::: "memory");
+    pf_state.generation++;
+}
+
 static void pf_refresh(void)
 {
     unsigned int k, mask = 0;
@@ -136,6 +159,7 @@ static void pf_refresh(void)
         else if (PF_FX(k)->kind == 3) mask |= 1u << ST_NATIVE_NOTE_ACCEPT;
     }
     pf_interest(mask);
+    pf_publish();
     pf_dirty = 1;
 }
 
@@ -228,7 +252,8 @@ static unsigned int pf_palette(unsigned int k, unsigned int *mode)
     if (!PF_FX(id)->kind) { *mode = 1; return 2u; }
     if (pf_latch >> id & 1u) return 23u;           /* latched */
     if (pf_phys >> id & 1u) return 20u;            /* held */
-    return PF_FX(id)->kind == 1 ? 14u : PF_FX(id)->kind == 2 ? 31u : 3u;
+    return PF_FX(id)->kind == PF_KIND_JUMP ? 14u : PF_FX(id)->kind == PF_KIND_RAMP ? 31u :
+           PF_FX(id)->kind == PF_KIND_AUDIO ? 26u : 3u;      /* 26 magenta: the audio effects */
 }
 static void pf_led_nothing(void *handler) { (void)handler; }
 static void pf_view_leds(void *handler, void *claimed, void *offered)
@@ -354,6 +379,7 @@ int pf_key(void *brain, const void *ev)
             pf_trk_pending = 0;
             if (!pf_open_view(brain)) return 0;    /* something else is open: stays native */
             pf_open = 1;
+            pf_publish();
             pf_swallow |= 1u << PF_KEY_TRK;
             pf_dirty = 1;
             return 1;
@@ -394,7 +420,7 @@ int pf_key(void *brain, const void *ev)
         pf_down |= 1u << k;
         if (pf_trk_down) {                         /* TRK + trig: which tracks the effects touch */
             pf_func |= 1u << k;
-            if (k < PF_TRACKS) pf_include ^= 1u << k;
+            if (k < PF_TRACKS) { pf_include ^= 1u << k; pf_publish(); }
             pf_dirty = 1;
             return 1;
         }
