@@ -87,6 +87,34 @@ the first EMAC instruction (`40001b98`; the corrected build is not in this
 environment), and the call site of the routine was not found as a direct call.
 Do not write a row word for a filter until this is resolved.
 
+### Update: the call site (read from the AUDIO image)
+
+The routine is referenced once, at `40000a74` (`lea $400019d6,a4`), and the
+per-track loop in AUDIO's IRQ (`40000a00`..`40000ac6`) calls it as `jsr (a4)`.
+Its first argument is `pea -0x30(a2)` with `a2` starting at `0x80003cc2` and
+stepping `0x8e` per track, so argument 1 is the row base + `0x52` for track 0.
+The routine reads the frequency at argument 1 + 4, which is row + `0x56`,
+that is **row word 43**, one past the `slot + 14` rule (slot 28 gives 42).
+The buffer argument is `0x80003840 + t * 128`; the third argument is taken
+from `(a3)+` with `a3 = 0x80008188`, a word of the native frame.
+Read from the disassembly only; not run. Until a run agrees, treat word 43
+as the likely frequency word and still do not write it.
+
+Still open: whether MAIN rebuilds the working copy at `0x80006364` every block
+(its address is computed, so there is no literal reference to search for), and
+the row words of the FX-track layout.
+
+## Planned UI (from Vedanta's idea, discussion #11)
+
+A pool of FX states, like the Sound Pool, placed on a lane of the performance
+module. The keys the user proposed:
+
+- trig + left bottom knob: the Sound Pool;
+- FX mod lane trig + left bottom knob: the FX plock pool.
+
+GSM's view: apply the parameters on press, restore on release; CPU cost is
+small. Nothing of this is built.
+
 ## What each idea needs
 
 | Idea | Kind | Needs |
@@ -99,7 +127,7 @@ Do not write a row word for a filter until this is resolved.
 
 ## Suggested order
 
-1. (Done in these notes) the slot of each parameter. Next, settle the row word of the filter frequency: find the multimode filter's call site and its first argument, or run it in the corrected Unicorn.
+1. (Done in these notes) the slot of each parameter and the filter's call site (row word 43, unrun). Next, confirm it in the corrected Unicorn and settle the working-copy rebuild.
 2. Prove on the emulator that a PUBLISH subscriber's row writes reach AUDIO's
    rows and that the next block starts from the stock value again.
 3. Then one parameter effect (a filter sweep) as a Perf FX kind, with the same
