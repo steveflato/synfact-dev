@@ -11,9 +11,15 @@ API 21). On an older core the module does not start and nothing changes.
 - **SETTINGS > TUNING**: OFF, or one of the factory tunings. YES steps
   forward; LEFT/RIGHT step either way.
 - **SETTINGS > TUNE ROOT**: the note the tuning is built from (C..B).
+- **SETTINGS > TUNE TRACKS**: which tracks are tuned. LEFT/RIGHT move
+  through T1..T12 and ALL; YES switches the shown track on or off (ALL: every
+  track on, or every track off), so drums can keep 12-TET.
 
-Both are kept across power-off (core preferences, key 4). OFF and 12-TET
-leave every pitch exactly as stock.
+All three are kept across power-off (core preferences, key 4: tuning, root,
+track mask). With TUNING OFF, a flat tuning (12-TET) or no track on, the
+module declares no PITCH interest, so MAIN takes the stock short path and
+every pitch is exactly stock. The interest changes only when that state
+changes, in an IRQ-masked section.
 
 | file | what |
 |---|---|
@@ -41,8 +47,8 @@ the native bus before the audio frame reads them. This module edits them in
 place. A new tuning is prepared in a second table and switched in with one
 pointer store, so MAIN never sees a half-written table.
 
-Not yet: per-track enable, Scala files loaded on the unit, more than 12 notes
-per octave.
+Not yet: Scala files loaded on the unit, more than 12 notes per octave, a
+per-kit record.
 
 ## Tests
 

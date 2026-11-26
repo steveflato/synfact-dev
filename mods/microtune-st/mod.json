@@ -1,5 +1,5 @@
 {
-  "id": "microtune-st", "version": "0.1.0", "title": "Microtune",
+  "id": "microtune-st", "version": "0.2.0", "title": "Microtune",
   "description": "Microtuning on the 12 audio tracks: SETTINGS > TUNING picks a factory tuning (just intonation, Pythagorean, meantone, well temperaments, Arabic Rast, Poole ROD12), SETTINGS > TUNE ROOT its root. Kept across power-off. Needs a core with ST_NATIVE_PITCH (host API 21; prototype 2.9.0-mt1).",
   "author": "Safie Flato (steveflato)",
   "device": "syntakt", "os": "1.42", "license": "GPL-2.0-or-later",
