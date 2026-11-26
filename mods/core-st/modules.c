@@ -41,19 +41,19 @@ typedef char event_table_size[sizeof events/sizeof events[0]==ST_EV_COUNT?1:-1];
  * mask bits 24..31 narrow a TYPE subscriber to those tracks (0 or 0xff: all).
  * native.s tests these bytes by address. */
 #define NATIVE_TYPE_TRACKS ST_NATIVE_OPERATION_COUNT
-typedef char native_type_bytes[ST_NATIVE_OPERATION_COUNT==18 && ST_NATIVE_NOTE_ACCEPT==20?1:-1];
-#define NATIVE_BYTES_INIT {128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,0xff,1,128,128}
-#define NATIVE_ROUTES_INIT {~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u}
-typedef char native_routes_size[ST_NATIVE_OPERATION_LIMIT==22?1:-1];
+typedef char native_type_bytes[ST_NATIVE_OPERATION_COUNT==18 && ST_NATIVE_NOTE_ACCEPT==20 && ST_NATIVE_PITCH==22?1:-1];
+#define NATIVE_BYTES_INIT {128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,0xff,1,128,128,128}
+#define NATIVE_ROUTES_INIT {~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u,~0u}
+typedef char native_routes_size[ST_NATIVE_OPERATION_LIMIT==23?1:-1];
 #ifdef __mcoldfire__
-/* Core 2.6.1: the words sit 88 bytes before the bytes, so the dispatcher
+/* Core 2.6.1: the words sit 4*LIMIT bytes (92 since PITCH) before the bytes, so the dispatcher
  * reads an operation's word with the base it already holds for its byte
  * (native-routes.s), at no extra instruction. */
 static struct {u32 routes[ST_NATIVE_OPERATION_LIMIT];unsigned char interest[4*NATIVE_WORDS];}
     native_table __attribute__((aligned(4)))={NATIVE_ROUTES_INIT,NATIVE_BYTES_INIT};
-typedef char native_table_layout[__builtin_offsetof(__typeof__(native_table),interest)==88?1:-1];
+typedef char native_table_layout[__builtin_offsetof(__typeof__(native_table),interest)==92?1:-1];
 __asm__(".globl core_native_routes\n.set core_native_routes,native_table\n"
-        ".globl core_native_interest\n.set core_native_interest,native_table+88");
+        ".globl core_native_interest\n.set core_native_interest,native_table+92");
 #define core_native_routes (native_table.routes)
 #define core_native_interest (native_table.interest)
 #else

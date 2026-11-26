@@ -44,8 +44,17 @@ enum st_native_operation {
  ST_NATIVE_OWNERS, ST_NATIVE_MODULATION, ST_NATIVE_LFO, ST_NATIVE_OPERATION_COUNT,
  /* 18/19 remain the TYPE filter bytes, including for older bank binaries.
   * OPERATION_COUNT stays 18: host API 4 profiler buffers are 36 words. */
- ST_NATIVE_NOTE_ACCEPT=20, ST_NATIVE_SOUND_META, ST_NATIVE_OPERATION_LIMIT
+ ST_NATIVE_NOTE_ACCEPT=20, ST_NATIVE_SOUND_META, ST_NATIVE_PITCH, ST_NATIVE_OPERATION_LIMIT
 };
+/* Host API 21, MAIN IRQ, once per audio block: PITCH args = {pitches, count}.
+ * pitches is the borrowed array of the 12 tracks' final Q16 pitches (60<<16 =
+ * C4; note, TUNE, slide/glide and modulation included), written by MAIN's
+ * track loop (400a4b6a..400a4bb6) into 80004688 and read afterwards by the
+ * digital voices' frame copy (400a4d8c) and the analog slots (400a4efc).
+ * count is 12. A subscriber may rewrite entries in place (a tuning, a global
+ * pitch effect) and returns zero; the stock path then continues unchanged.
+ * Entries are signed 32-bit; keep them within the stock range. No IO, no
+ * heap: this runs on every block. */
 /* Host API 8, MAIN IRQ, after track mute/staleness and Sound resolution, before
  * note gate/pitch/lock effects. args = {event, sound, effective_time, frame_end}.
  * Native time is a wrapping 32-bit musical

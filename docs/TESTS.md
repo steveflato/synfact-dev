@@ -765,6 +765,13 @@ reports one-time configuration work separately and requires non-increasing
 counts for subsequent keys/sequence events. `bench_st_arp_accept.py` accepts
 an optional `--before-core` for its unchanged acceptance/count assertions.
 
+`test_st_native_pitch_emu.py --core <core-folder>` (core 2.9.0-mt1) runs MAIN
+from the PITCH site `400a4bb8` through the resident dispatcher to `400a4bbe`
+with a stand-in subscriber. It checks op 22 with args `{80004688, 12}`, that
+in-place edits are what MAIN reads, that nothing is called without interest,
+the `d0`/Z replay for a zero and a nonzero status word (by running MAIN's own
+`beq.s`), the saved registers and a balanced stack.
+
 Core 1.8.1.3 adds `test_st_native_service_emu.py --before <core-folder> --after
 <core-folder> --out <json>`: 2,880 independent linked service cases per core,
 checking consumption/results, original replay, zero/uninitialized results,

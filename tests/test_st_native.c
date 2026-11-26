@@ -55,6 +55,11 @@ static int first(u32 op,const u32 *a,u32 *out){(void)op;(void)a;(void)out;native
 static int second(u32 op,const u32 *a,u32 *out)
 {native_calls++;if(op==ST_NATIVE_SOUND_ALLOWED){assert(a[0]==2);*out=0;return 1;}
  if(op==ST_NATIVE_NOTE_ACCEPT){*out=note_consumed;return 1;}return 0;}
+/* Host API 21: PITCH hands the 12 final pitches over in place, unconsumed. */
+static int pitch_seen;
+static int tuner(u32 op,const u32 *a,u32 *out)
+{(void)out;native_calls++;if(op!=ST_NATIVE_PITCH)return 0;
+ assert(a[1]==12);{int *p=(int *)a[0];u32 t;for(t=0;t<12;t++)p[t]+=(int)t;}pitch_seen++;return 0;}
 static int legacy(u32 op,const u32 *a,u32 *out)
 {(void)op;(void)a;(void)out;native_calls++;return 0;}
 static u32 change_routes;
@@ -166,12 +171,14 @@ int main(void)
     {u32 guarded[38]={0},before=native_calls;guarded[0]=guarded[37]=0x12345678;
      core_native_profile(guarded+1);assert(!core_native(ST_NATIVE_NOTE_ACCEPT,a));
      assert(!core_native(ST_NATIVE_SOUND_META,a));
-     assert(native_calls==before+4 && guarded[0]==0x12345678 && guarded[37]==0x12345678);
+     assert(!core_native(ST_NATIVE_PITCH,a));
+     assert(native_calls==before+6 && guarded[0]==0x12345678 && guarded[37]==0x12345678);
      for(v=1;v<37;v++)assert(!guarded[v]);core_native_profile(0);
      assert(!core_native(ST_NATIVE_OPERATION_LIMIT,a));}
     core_native_interest_set((void (*)(void))first,1u<<ST_NATIVE_TRIG);
     core_native_interest_set((void (*)(void))second,1u<<ST_NATIVE_NOTE_ACCEPT);
     assert(core_native_interest[20] && !core_native_interest[18] && !core_native_interest[19]);
+    assert(!core_native_interest[ST_NATIVE_PITCH]);                  /* nobody asked: the site replays stock */
     note_consumed=1;assert(core_native(ST_NATIVE_NOTE_ACCEPT,a)==1);
     note_consumed=0;assert(!core_native(ST_NATIVE_NOTE_ACCEPT,a));
     {
@@ -196,6 +203,16 @@ int main(void)
          assert(!core_event_native(ST_NATIVE_PUBLISH,a,&v) && native_calls==3);
          assert(core_native_interest[ST_NATIVE_PUBLISH]==1);
          native_calls=0;assert(!core_event_native(ST_NATIVE_PUBLISH,a,&v) && native_calls==1);}
+        /* PITCH (host API 21): only its subscriber, the array rewritten in place. */
+        {const u32 tuned[]={(u32)first,(u32)tuner,0};int pitch[12];u32 pa[2]={(u32)pitch,12},t;
+         events[ST_EV_NATIVE].list=tuned;core_native_initialize();
+         core_native_interest_set((void (*)(void))first,1u<<ST_NATIVE_TRIG);
+         core_native_interest_set((void (*)(void))tuner,1u<<ST_NATIVE_PITCH);
+         assert(core_native_interest[ST_NATIVE_PITCH]==2 && core_native_interest[ST_NATIVE_TRIG]==1);
+         for(t=0;t<12;t++)pitch[t]=(int)((60+t)<<16);
+         native_calls=0;pitch_seen=0;assert(!core_native(ST_NATIVE_PITCH,pa));
+         assert(pitch_seen==1 && native_calls==1);
+         for(t=0;t<12;t++)assert(pitch[t]==(int)((60+t)<<16)+(int)t);}
         events[ST_EV_NATIVE].list=ev_native;core_native_initialize();
     }
     many_routes();

@@ -56,8 +56,14 @@ class Service(Routes):
         return list(struct.unpack('>36I',bytes(self.u.mem_read(at,144))))
 
 
+def core_limit(m):
+    """ST_NATIVE_OPERATION_LIMIT as linked: 22 before PITCH (core 2.9.0-mt1), 23 since."""
+    if 'core:core_native_routes' not in m.sym:return 22
+    return (m.sym['core:core_native_interest']-m.sym['core:core_native_routes'])//4
+
+
 def verify(folder):
-    m=Service(folder);rows=[]
+    m=Service(folder);rows=[];LIMIT=core_limit(m)
     for profiled in (False,True):
         for count in (0,3,8):
             entries=[CALLBACK+32*i for i in range(count)]
@@ -67,14 +73,14 @@ def verify(folder):
                 # Core 2.6.1: a positive byte takes its entries from the word.
                 if 'core:core_native_routes' in m.sym:
                     m.u.mem_write(m.sym['core:core_native_routes'],
-                                  pack(*[0xffffffff if route&128 else route]*22))
-                for op in (*range(22),22,0xffffffff):
+                                  pack(*[0xffffffff if route&128 else route]*LIMIT))
+                for op in (*range(LIMIT),LIMIT,0xffffffff):
                     for take in ('none','first','last','empty_result'):
                         m.operation=op;m.original=[];m.hits=[];m.timer_reads=0
                         m.no_write=take=='empty_result'
                         m.consume=(entries[-1] if take=='last' else entries[0]) if entries and take!='none' else None
                         want=[]
-                        if op<22 and route:
+                        if op<LIMIT and route:
                             for i,fn in enumerate(entries):
                                 if op in (18,19) or route&128 or route>>i&1:
                                     want.append(fn)
@@ -93,7 +99,8 @@ def verify(folder):
                             expected_profile[op]=6;expected_profile[18+op]=0
                         assert m.profile_words(PROFILE)==expected_profile,(profiled,op)
                         assert m.timer_reads==(2 if op<18 else 1) if profiled else m.timer_reads==0
-                        rows.append(dict(profile=profiled,subscribers=count,route=route,operation=op,
+                        rows.append(dict(profile=profiled,subscribers=count,route=route,
+                                         operation=op if op<LIMIT else 'limit' if op==LIMIT else op,
                                          consume=take,instructions=n))
     # A real callback changes the profiler pointer and optionally makes a
     # recursive invalid-op call. The current call must use its entry snapshot.
@@ -104,7 +111,7 @@ def verify(folder):
     for initial,next_buffer,nested in ((0,OTHER,False),(PROFILE,0,False),(PROFILE,OTHER,False),(PROFILE,PROFILE,True)):
         code=bytes.fromhex('4feffff8')                 # outgoing op/args
         if nested:
-            code+=bytes.fromhex('2ebc')+pack(22)+bytes.fromhex('2f7c')+pack(ARGS)+bytes.fromhex('0004')
+            code+=bytes.fromhex('2ebc')+pack(LIMIT)+bytes.fromhex('2f7c')+pack(ARGS)+bytes.fromhex('0004')
             code+=bytes.fromhex('4eb9')+pack(m.sym['core:core_native'])
         code+=bytes.fromhex('2ebc')+pack(next_buffer)
         code+=bytes.fromhex('4eb9')+pack(m.sym['core:core_native_profile'])
@@ -115,7 +122,7 @@ def verify(folder):
         m.invoke('core_native_profile',initial)
         m.operation=17;m.consume=None;m.hits=[];m.original=[];m.timer_reads=0
         assert m.invoke('core_native',17,ARGS)==0x6a000011
-        assert m.hits==[CALLBACK] and m.original==([22,17] if nested else [17])
+        assert m.hits==[CALLBACK] and m.original==([LIMIT,17] if nested else [17])
         old=[0xffffffff]*36
         if initial:old[17]=13 if nested else 6;old[35]=0
         assert m.profile_words(PROFILE)==old and m.profile_words(OTHER)==[0xffffffff]*36
@@ -130,7 +137,13 @@ def main():
     p.add_argument('--out',type=Path,required=True);a=p.parse_args()
     before,after=verify(a.before),verify(a.after)
     rows=[]
-    for old,new in zip(before['rows'],after['rows']):
+    # Matched by case: one past each core's own limit is the same invalid case;
+    # operations a newer core adds (PITCH, 22) have no row before.
+    key=lambda r:tuple((k,v) for k,v in r.items() if k!='instructions')
+    new_rows={key(r):r for r in after['rows']}
+    assert len(new_rows)>=len(before['rows'])
+    for old in before['rows']:
+        new=new_rows[key(old)]
         assert {k:v for k,v in old.items() if k!='instructions'}=={k:v for k,v in new.items() if k!='instructions'}
         assert new['instructions']<=old['instructions'],('native service regression',old,new)
         rows.append({**{k:v for k,v in old.items() if k!='instructions'},'before':old['instructions'],'after':new['instructions']})

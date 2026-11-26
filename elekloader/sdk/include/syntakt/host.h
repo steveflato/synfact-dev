@@ -147,6 +147,8 @@ struct st_machine_host_api {
      * mix() replaces the native mixer call only while stopped and ready.
      * Both are bounded, no heap/IO; mix may use the native EMAC/output ABI. */
     const struct st_audio_idle_owner *volatile *audio_idle;
+    /* API 21 (prototype core 2.9.0-mt1): ST_NATIVE_PITCH (native.h), the 12
+     * tracks' final pitches in MAIN; no record change. */
     /* API 20: independent Kit mirrors and global preferences. */
     const struct st_persistence_api *persistence;
     /* Host API 16 adds no field: the shared Kit queries 32..35. API 15's

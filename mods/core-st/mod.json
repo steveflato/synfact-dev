@@ -1,6 +1,6 @@
 {
   "id": "core",
-  "version": "2.9.0",
+  "version": "2.9.0-mt1",
   "license": "GPL-2.0-or-later",
   "title": "core",
   "category": "Framework",
@@ -645,6 +645,12 @@
       "stock": "49f9800046884285",
       "op": "jmp",
       "target": "core_native_publish"
+    },
+    {
+      "addr": "0x400a4bb8",
+      "stock": "203943bdd4c8",
+      "op": "jmp",
+      "target": "core_native_pitch"
     },
     {
       "addr": "0x400a4c46",
