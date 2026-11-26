@@ -56,22 +56,80 @@ core_native_\name:
 | them. args = {80004688, 12}; subscribers rewrite in place, unconsumed.
         .globl core_native_pitch
 core_native_pitch:
+| DIAGNOSTIC BUILD (branch feat/pitch-bench, never for a release). Times the
+| whole hook with the timer the profiler uses (0xfc07000c) into the extra words
+| past the host API 4 profile buffer (byte offsets from its start):
+|   144 prev entry  148 period sum lo  152 period max  156 period n  160 mode
+|   (0 patched path, 1 stock instruction)  164 period sum hi
+|   168/172/176 hook sum/max/n patched   180/184/188 hook sum/max/n stock
+| The period between two entries is one MAIN block: the denominator. With no
+| buffer registered this is the release adapter.
+        lea -32(%sp),%sp
+        movem.l %d1-%d3/%a0-%a1,(%sp)
+        move.l core_native_profile_buffer,%d3
+        beq 50f
+        move.l 0xfc07000c,%d2
+        movea.l %d3,%a0
+        move.l 144(%a0),%d1
+        move.l %d2,144(%a0)
+        tst.l %d1
+        beq.s 2f
+        neg.l %d1
+        add.l %d2,%d1
+        add.l %d1,148(%a0)
+        bcc.s 1f
+        addq.l #1,164(%a0)
+1:      cmp.l 152(%a0),%d1
+        bls.s 3f
+        move.l %d1,152(%a0)
+3:      addq.l #1,156(%a0)
+2:      tst.l 160(%a0)
+        bne 40f
         tst.b core_native_interest+22
-        beq.s 98f
-        lea -24(%sp),%sp
-        movem.l %d0-%d1/%a0-%a1,(%sp)
-        lea 0x80004688,%a0
-        move.l %a0,16(%sp)
-        moveq #12,%d0
-        move.l %d0,20(%sp)
-        pea 16(%sp)
+        beq.s 10f
+        clr.l core_native_profile_buffer
+        lea 0x80004688,%a1
+        move.l %a1,24(%sp)
+        moveq #12,%d1
+        move.l %d1,28(%sp)
+        pea 24(%sp)
         pea 22
         jsr core_native
         addq.l #8,%sp
-        movem.l (%sp),%d0-%d1/%a0-%a1
-        lea 24(%sp),%sp
-98:
-        move.l 0x43bdd4c8,%d0
+        move.l %d3,core_native_profile_buffer
+        movea.l %d3,%a0
+10:     move.l 0x43bdd4c8,%d0
+        move.l 0xfc07000c,%d1
+        sub.l %d2,%d1
+        add.l %d1,168(%a0)
+        cmp.l 172(%a0),%d1
+        bls.s 11f
+        move.l %d1,172(%a0)
+11:     addq.l #1,176(%a0)
+        bra.s 90f
+40:     move.l 0x43bdd4c8,%d0
+        move.l 0xfc07000c,%d1
+        sub.l %d2,%d1
+        add.l %d1,180(%a0)
+        cmp.l 184(%a0),%d1
+        bls.s 41f
+        move.l %d1,184(%a0)
+41:     addq.l #1,188(%a0)
+        bra.s 90f
+50:     tst.b core_native_interest+22
+        beq.s 51f
+        lea 0x80004688,%a1
+        move.l %a1,24(%sp)
+        moveq #12,%d1
+        move.l %d1,28(%sp)
+        pea 24(%sp)
+        pea 22
+        jsr core_native
+        addq.l #8,%sp
+51:     move.l 0x43bdd4c8,%d0
+90:     movem.l (%sp),%d1-%d3/%a0-%a1
+        lea 32(%sp),%sp
+        tst.l %d0
         jmp 0x400a4bbe
 
         .globl core_native_immediate

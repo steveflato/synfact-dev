@@ -1,0 +1,8 @@
+{
+  "id": "pitchbench-st", "version": "0.1.0", "title": "Pitch hook bench",
+  "description": "DIAGNOSTIC, not for release. Reads the timing the core 2.9.0-mt1-bench PITCH hook accumulates: hook ticks (patched path or stock instruction) against the MAIN block period, same timer as the profiler.",
+  "author": "Safie Flato (steveflato)",
+  "device": "syntakt", "os": "1.42", "license": "GPL-2.0-or-later",
+  "sources": ["main.c"],
+  "smz_module": {"descriptor": "pitchbench_module"}
+}
