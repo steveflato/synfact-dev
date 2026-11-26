@@ -949,10 +949,17 @@ SDK units cover service dependency order, deduplication, invalid service IDs,
 foreign modules and cycles. SMZ parser checks still apply to every bank,
 including the optional LFO3 module's init-only descriptor.
 
-microtune-st (draft, no module yet): `tests/test_st_microtune.py [--cc cc]
+microtune-st (prototype, needs core 2.9.0-mt1): `tests/test_st_microtune.py [--cc cc]
 [--cross m68k-elf-gcc]` checks that `mods/microtune-st/tunings.h` matches
 `tools/microtune.py`, that POOLE ROD12 equals its .scl and bad scales are
 refused, and compares `tune.h`'s `mt_map` with an exact reference for every
 factory tuning and root (semitones exact, 12-TET the identity, pitch rising,
 offsets clamped). With a cross compiler it also builds the headers for
 ColdFire; without one that part is skipped.
+`tests/test_st_microtune_module.py [--cc m68k-elf-gcc]` builds the module and
+runs it in Unicorn: it refuses host API < 21 and subscribes to PITCH only,
+adds the TUNING and TUNE ROOT rows, leaves pitches alone while OFF, moves
+them exactly as `mt_map` for every tuning and root (in place, never
+consuming, `count` respected), steps and wraps both rows, and reads/writes
+preferences key 4 with out-of-range values ignored. Without a ColdFire
+compiler it prints SKIP.
