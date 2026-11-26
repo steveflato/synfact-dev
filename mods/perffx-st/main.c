@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * perffx-st 0.2.1 (prototype): performance effects on the 16 trig keys. See README.md.
+ * perffx-st 0.3.1 (prototype): performance effects on the 16 trig keys. See README.md.
  *
  * Double-tap TRK to open (the first tap keeps its native action; the second
  * is taken, as the recorder does with SOUND). While it is open the 16 trig
- * keys are effects: hold to apply and release to resume. FUNC + trig key 14
- * turns LATCH on or off: with it on a press turns the effect on and the next
- * press turns it off. PAGE switches the two banks, FUNC + a trig key 1..12
- * includes or excludes that track, FUNC + 13 includes all. NO closes it and
- * turns everything off, latch mode too. Other keys (PLAY, STOP, FUNC, the
+ * keys are effects: hold to apply and release to resume. Press FUNC while
+ * one or more are held and they latch on, so the keys can be let go; press
+ * a latched effect's key to turn it off. PAGE switches the two banks, FUNC
+ * then a trig key 1..12 includes or excludes that track, FUNC then 13
+ * includes all. NO closes it and turns everything off. Other keys (PLAY, STOP, FUNC, the
  * encoders) stay native.
  *
  * Two engines, both on the core's native bus, both declared only while a key
@@ -22,6 +22,7 @@
 #include <syntakt/native.h>
 
 #define PF_TRACKS 12u
+#define PF_KEY_FUNC 1u
 #define PF_KEY_TRK 2u
 #define PF_KEY_NO 13u
 #define PF_KEY_PAGE 18u
@@ -82,7 +83,6 @@ static unsigned int pf_down __attribute__((section(".data"))) = 0;              
 static unsigned int pf_bank __attribute__((section(".data"))) = 0;
 static unsigned int pf_func __attribute__((section(".data"))) = 0;               /* bit k: that press was a track toggle */
 static unsigned char pf_key_fx[16] __attribute__((section(".data")));            /* the effect id key k started */
-static unsigned int pf_latch_mode __attribute__((section(".data"))) = 0;         /* FUNC + trig 14: a press toggles the effect */
 static volatile unsigned int pf_include __attribute__((section(".data"))) = 0xfffu;  /* bit t: track t+1 is affected */
 static volatile int pf_cur[32] __attribute__((section(".data")));                /* a ramp's current offset */
 static unsigned int pf_ticks __attribute__((section(".data"))) = 0;
@@ -184,7 +184,6 @@ static void pf_close(void)
     pf_open = 0;
     pf_phys = 0;
     pf_latch = 0;
-    pf_latch_mode = 0;
     pf_refresh();
 }
 
@@ -228,6 +227,15 @@ int pf_key(void *brain, const void *ev)
         if (!repeat) { pf_swallow |= 1u << PF_KEY_NO; pf_close(); }
         return 1;
     }
+    if (key == PF_KEY_FUNC) {                      /* FUNC while effects are held: they latch, and the keys can go */
+        if (repeat) return (pf_swallow >> PF_KEY_FUNC) & 1u;
+        if (!pf_phys) return 0;                    /* otherwise native, for FUNC + a trig key */
+        pf_latch |= pf_phys;
+        pf_phys = 0;
+        pf_swallow |= 1u << PF_KEY_FUNC;
+        pf_refresh();
+        return 1;
+    }
     if (key == PF_KEY_PAGE) {
         if (!repeat) { pf_swallow |= 1u << PF_KEY_PAGE; pf_bank ^= 1u; pf_dirty = 1; }
         return 1;
@@ -240,18 +248,14 @@ int pf_key(void *brain, const void *ev)
             pf_func |= 1u << k;
             if (k < PF_TRACKS) pf_include ^= 1u << k;
             else if (k == PF_TRACKS) pf_include = 0xfffu;
-            else if (k == PF_TRACKS + 1) {         /* FUNC + 14: LATCH on or off; off clears the latches */
-                pf_latch_mode ^= 1u;
-                if (!pf_latch_mode) { pf_latch = 0; pf_refresh(); }
-            }
             pf_dirty = 1;
             return 1;
         }
         id = pf_bank * 16u + k;
         pf_key_fx[k] = (unsigned char)id;
         if (PF_FX(id)->kind) {
-            if (pf_latch_mode) pf_latch ^= 1u << id;                /* LATCH: this press toggles it */
-            else pf_phys |= 1u << id;                                /* hold: on while down */
+            if (pf_latch >> id & 1u) pf_latch &= ~(1u << id);       /* a latched effect: this press turns it off */
+            else pf_phys |= 1u << id;                                /* otherwise on while the key is down */
             pf_refresh();
         }
         return 1;
@@ -299,7 +303,7 @@ void pf_draw(void *bmp, void *ctrl)
     head[8] = (char)('1' + pf_bank);
     fw_fillrect(bmp, 18, 54, 127, 63, 0);
     pf_text(bmp, 20, 60, head);
-    if (pf_latch_mode) pf_text(bmp, 104, 60, "LATCH");
+    if (pf_latch) pf_text(bmp, 104, 60, "LATCH");
     for (k = 0; k < 32; k++)
         if ((h >> k & 1u) && PF_FX(k)->name[0]) { pf_text(bmp, 60, 60, PF_FX(k)->name); break; }
     for (t = 0; t < PF_TRACKS; t++) {              /* the tracks the effects touch: a block, or a dot when left out */

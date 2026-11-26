@@ -1,4 +1,4 @@
-# perffx-st: performance effects on the trig keys (prototype 0.2.1)
+# perffx-st: performance effects on the trig keys (prototype 0.3.1)
 
 A test build for the design in Discussion #11. Not for a pull request yet.
 
@@ -9,11 +9,11 @@ an L if one is latched, and a row of 12 marks: a block for each track the
 effects touch, a dot for each one left out. NO closes it and turns every effect
 off. PLAY, STOP, FUNC and the encoders stay native.
 
-**Hold or latch.** By default an effect is on only while its trig key is down.
-FUNC + trig key 14 turns LATCH on: then a press turns an effect on and the next
-press turns it off, however long the key is held. The bar shows LATCH. FUNC +
-key 14 again turns it off and clears every latch. Held and latched effects add
-up.
+**Hold or latch.** An effect is on while its trig key is down. Press FUNC
+while one or more effect keys are held and they latch on: let the keys go and
+they stay. Press a latched effect's key to turn it off. Held and latched
+effects add up. FUNC with no effect held stays native, so FUNC then a trig key
+still includes or excludes a track.
 
 **Banks.** PAGE switches between the two banks. A key held across a switch
 keeps the effect it started.
@@ -33,10 +33,9 @@ keeps the effect it started.
 | 11 | MUTE ALL | MUTE tracks 1-4 |
 | 12 | MUTE ODD tracks | MUTE tracks 5-8 |
 | 13 | MUTE EVEN tracks | MUTE tracks 9-12 |
-| 14 | (FUNC + 14: latch on/off) | |
-| 15-16 | | |
+| 14-16 | | |
 
-**Which tracks.** All 12 by default. FUNC + a trig key 1 to 12 includes or
+**Which tracks.** All 12 by default. FUNC, then a trig key 1 to 12, includes or
 excludes that track for the pitch effects and the mutes; FUNC + key 13
 includes all again. Kept until power-off, not across it.
 
