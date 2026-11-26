@@ -1,6 +1,6 @@
 {
-  "id": "perffx-st", "version": "0.1.0", "title": "Performance FX (prototype)",
-  "description": "Prototype: double-tap TRK to turn the 16 trig keys into hold-to-apply performance effects (octave and fifth jumps, tape stop, dive, rise, mutes). NO closes it. Needs a core with ST_NATIVE_PITCH (host API 21; prototype 2.9.0-mt1). Test build, not for a pull request.",
+  "id": "perffx-st", "version": "0.2.0", "title": "Performance FX (prototype)",
+  "description": "Prototype: double-tap TRK to turn the 16 trig keys into hold-to-apply performance effects (octave and fifth jumps, tape stop, dive, rise, mutes), tap to latch, two banks, per-track include. NO closes it. Needs a core with ST_NATIVE_PITCH (host API 21; prototype 2.9.0-mt1). Test build, not for a pull request.",
   "author": "Safie Flato (steveflato)",
   "device": "syntakt", "os": "1.42", "license": "GPL-2.0-or-later",
   "sources": ["main.c"],

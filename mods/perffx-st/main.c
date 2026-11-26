@@ -1,18 +1,21 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * perffx-st 0.1.0 (prototype): performance effects on the 16 trig keys. See README.md.
+ * perffx-st 0.2.0 (prototype): performance effects on the 16 trig keys. See README.md.
  *
  * Double-tap TRK to open (the first tap keeps its native action; the second
  * is taken, as the recorder does with SOUND). While it is open the 16 trig
- * keys are effects: hold to apply, release to resume. NO closes it. Other
- * keys (PLAY, STOP, FUNC, the encoders) stay native.
+ * keys are effects: hold to apply and release to resume, or tap to latch
+ * (tap a latched one to turn it off). PAGE switches the two banks, FUNC + a
+ * trig key 1..12 includes or excludes that track, FUNC + 13 includes all.
+ * NO closes it and turns everything off. Other keys (PLAY, STOP, FUNC, the
+ * encoders) stay native.
  *
  * Two engines, both on the core's native bus, both declared only while a key
  * of theirs is down (zero cost otherwise):
  *   pitch  ST_NATIVE_PITCH (core 2.9.0-mt1, host API 21): the 12 tracks' Q16
  *          pitches (1.0 = a semitone), edited in place per audio block.
  *   gate   ST_NATIVE_NOTE_ACCEPT: a note-on of a gated track is skipped.
- * Not here yet: LED colours, banks, per-track include/exclude, stutter,
- * bit crush, step effects, a screen of its own. */
+ * Not here yet: LED colours, stutter, bit crush, step effects, a screen of
+ * its own, a kept track selection. */
 #include <syntakt/modules.h>
 #include <syntakt/host.h>
 #include <syntakt/native.h>
@@ -23,6 +26,7 @@
 #define PF_KEY_PAGE 18u
 #define PF_KEY_TRIG0 24u            /* trig keys 24..39 */
 #define PF_DOUBLE_TICKS 12u         /* 30 ticks a second: 400 ms */
+#define PF_TAP_TICKS 9u             /* a press shorter than this (300 ms) latches */
 #define PF_SEMI (1 << 16)
 #define PF_MAXP (127 << 16)
 #define PF_KIND_SEQ 1u
@@ -33,34 +37,58 @@
 /* kind: 0 none, 1 jump (instant offset), 2 ramp to a target at a step per
  * audio block (1500 a second), 3 gate */
 struct pf_fx { const char *name; unsigned int kind; int target; int step; unsigned int mask; };
-static const struct pf_fx pf_table[16] = {
+static const struct pf_fx pf_table[2][16] = {{
     {"OCT UP",     1,  12 * PF_SEMI, 0, 0},
     {"OCT DOWN",   1, -12 * PF_SEMI, 0, 0},
     {"FIFTH UP",   1,   7 * PF_SEMI, 0, 0},
     {"FIFTH DOWN", 1,  -7 * PF_SEMI, 0, 0},
-    {"TAPE STOP",  2, -96 * PF_SEMI, 4194, 0},      /* about a second */
-    {"STOP FAST",  2, -96 * PF_SEMI, 11984, 0},     /* about a third of a second */
-    {"HALF SPEED", 2, -12 * PF_SEMI, 3495, 0},      /* glides an octave down in 0.15 s */
-    {"DIVE",       2, -36 * PF_SEMI, 3145, 0},      /* half a second */
-    {"RISE",       2,  24 * PF_SEMI, 2097, 0},
+    {"TAPE STOP",  2, -96 * PF_SEMI, 3146, 0},      /* about 1.3 s */
+    {"STOP FAST",  2, -96 * PF_SEMI, 8988, 0},      /* about 0.5 s */
+    {"HALF SPEED", 2, -12 * PF_SEMI, 2621, 0},      /* an octave down in 0.3 s */
+    {"DIVE",       2, -36 * PF_SEMI, 2359, 0},      /* about 0.7 s */
+    {"RISE",       2,  24 * PF_SEMI, 1573, 0},
     {"",           0,  0, 0, 0},
     {"MUTE ALL",   3,  0, 0, 0xfffu},
     {"MUTE ODD",   3,  0, 0, 0x555u},               /* tracks 1,3,5.. (bit 0 is track 1) */
     {"MUTE EVEN",  3,  0, 0, 0xaaau},
     {"",           0,  0, 0, 0},
     {"",           0,  0, 0, 0},
-    {"",           0,  0, 0, 0}};
+    {"",           0,  0, 0, 0}},{
+    {"2 OCT UP",   1,  24 * PF_SEMI, 0, 0},
+    {"2 OCT DOWN", 1, -24 * PF_SEMI, 0, 0},
+    {"SEMI UP",    1,   1 * PF_SEMI, 0, 0},
+    {"SEMI DOWN",  1,  -1 * PF_SEMI, 0, 0},
+    {"LONG STOP",  2, -96 * PF_SEMI, 1048, 0},      /* about 4 s */
+    {"SLOW DIVE",  2, -48 * PF_SEMI, 1048, 0},      /* about 3 s */
+    {"SLOW RISE",  2,  24 * PF_SEMI, 524, 0},       /* about 3 s */
+    {"",           0,  0, 0, 0},
+    {"",           0,  0, 0, 0},
+    {"",           0,  0, 0, 0},
+    {"MUTE 1 4",   3,  0, 0, 0x00fu},
+    {"MUTE 5 8",   3,  0, 0, 0x0f0u},
+    {"MUTE 9 12",  3,  0, 0, 0xf00u},
+    {"",           0,  0, 0, 0},
+    {"",           0,  0, 0, 0},
+    {"",           0,  0, 0, 0}}};
+#define PF_FX(id) (&pf_table[(id) >> 4][(id) & 15u])    /* an effect id is bank * 16 + key */
 
 static const struct st_machine_host_api *pf_host __attribute__((section(".data"))) = 0;
 static unsigned int pf_declared __attribute__((section(".data"))) = ~0u;
 static volatile unsigned int pf_open __attribute__((section(".data"))) = 0;
-static volatile unsigned int pf_held __attribute__((section(".data"))) = 0;      /* bit k: trig key k+1 is down and has an effect */
+static volatile unsigned int pf_held __attribute__((section(".data"))) = 0;      /* bit id: the effect is on (held or latched) */
+static unsigned int pf_phys __attribute__((section(".data"))) = 0;               /* bit id: its key is down */
+static unsigned int pf_latch __attribute__((section(".data"))) = 0;              /* bit id: latched on */
 static unsigned int pf_down __attribute__((section(".data"))) = 0;              /* bit k: trig key k+1 went down while open: its release is ours */
-static volatile int pf_cur[16] __attribute__((section(".data")));                /* a ramp's current offset */
+static unsigned int pf_bank __attribute__((section(".data"))) = 0;
+static unsigned int pf_func __attribute__((section(".data"))) = 0;               /* bit k: that press was a track toggle */
+static unsigned char pf_key_fx[16] __attribute__((section(".data")));            /* the effect id key k started */
+static unsigned int pf_press_at[16] __attribute__((section(".data")));
+static volatile unsigned int pf_include __attribute__((section(".data"))) = 0xfffu;  /* bit t: track t+1 is affected */
+static volatile int pf_cur[32] __attribute__((section(".data")));                /* a ramp's current offset */
 static unsigned int pf_ticks __attribute__((section(".data"))) = 0;
 static unsigned int pf_trk_at __attribute__((section(".data"))) = 0;
 static unsigned int pf_trk_pending __attribute__((section(".data"))) = 0;
-static unsigned int pf_swallow __attribute__((section(".data"))) = 0;            /* a key whose release is ours */
+static unsigned int pf_swallow __attribute__((section(".data"))) = 0;            /* bit key: a non-trig key whose release is ours */
 static unsigned int pf_dirty __attribute__((section(".data"))) = 0;
 unsigned int pf_calls __attribute__((section(".data"))) = 0;                     /* pitch hook calls: the rate check */
 unsigned int pf_dropped __attribute__((section(".data"))) = 0;
@@ -82,17 +110,18 @@ static void pf_interest(unsigned int mask)
 static unsigned int pf_gate_mask(void)
 {
     unsigned int k, m = 0, h = pf_held;
-    for (k = 0; k < 16; k++) if ((h >> k & 1u) && pf_table[k].kind == 3) m |= pf_table[k].mask;
-    return m;
+    for (k = 0; k < 32; k++) if ((h >> k & 1u) && PF_FX(k)->kind == 3) m |= PF_FX(k)->mask;
+    return m & pf_include;
 }
 
 static void pf_refresh(void)
 {
-    unsigned int k, h = pf_held, mask = 0;
-    for (k = 0; k < 16; k++) {
-        if (!(h >> k & 1u)) { pf_cur[k] = 0; continue; }
-        if (pf_table[k].kind == 1 || pf_table[k].kind == 2) mask |= 1u << ST_NATIVE_PITCH;
-        else if (pf_table[k].kind == 3) mask |= 1u << ST_NATIVE_NOTE_ACCEPT;
+    unsigned int k, mask = 0;
+    pf_held = pf_phys | pf_latch;
+    for (k = 0; k < 32; k++) {
+        if (!(pf_held >> k & 1u)) { pf_cur[k] = 0; continue; }
+        if (PF_FX(k)->kind == 1 || PF_FX(k)->kind == 2) mask |= 1u << ST_NATIVE_PITCH;
+        else if (PF_FX(k)->kind == 3) mask |= 1u << ST_NATIVE_NOTE_ACCEPT;
     }
     pf_interest(mask);
     pf_dirty = 1;
@@ -103,10 +132,10 @@ int pf_native(unsigned int op, const unsigned int *a, unsigned int *result)
 {
     if (op == ST_NATIVE_PITCH) {
         int *p, total = 0, v;
-        unsigned int k, i, n, h = pf_held;
+        unsigned int k, i, n, h = pf_held, inc = pf_include;
         if (!a || !a[0]) return 0;
-        for (k = 0; k < 16; k++) {
-            const struct pf_fx *f = &pf_table[k];
+        for (k = 0; k < 32; k++) {
+            const struct pf_fx *f = PF_FX(k);
             if (!(h >> k & 1u)) continue;
             if (f->kind == 1) total += f->target;
             else if (f->kind == 2) {
@@ -121,6 +150,7 @@ int pf_native(unsigned int op, const unsigned int *a, unsigned int *result)
         p = (int *)a[0];
         n = a[1] < PF_TRACKS ? a[1] : PF_TRACKS;
         for (i = 0; i < n; i++) {
+            if (!(inc >> i & 1u)) continue;
             v = p[i] + total;
             if (v < 0) v = 0;
             if (v > PF_MAXP) v = PF_MAXP;
@@ -152,11 +182,12 @@ static unsigned int be32(const unsigned char *p)
 static void pf_close(void)
 {
     pf_open = 0;
-    pf_held = 0;
+    pf_phys = 0;
+    pf_latch = 0;
     pf_refresh();
 }
 
-/* ev_key, UI task. flags: bit 0 down, bit 3 repeat; a release has bit 0 clear. */
+/* ev_key, UI task. flags: bit 0 down, bit 1 FUNC held, bit 3 repeat; a release has bit 0 clear. */
 int pf_key(void *brain, const void *ev)
 {
     const unsigned char *e = ev;
@@ -165,11 +196,16 @@ int pf_key(void *brain, const void *ev)
     (void)brain;
 
     if (!down) {                                   /* releases */
-        if (pf_swallow && key == pf_swallow) { pf_swallow = 0; return 1; }
+        if (key < 32 && (pf_swallow >> key & 1u)) { pf_swallow &= ~(1u << key); return 1; }
         if (key >= PF_KEY_TRIG0 && key < PF_KEY_TRIG0 + 16 && (pf_down >> (key - PF_KEY_TRIG0) & 1u)) {
-            pf_down &= ~(1u << (key - PF_KEY_TRIG0));
-            pf_held &= ~(1u << (key - PF_KEY_TRIG0));
-            pf_refresh();
+            unsigned int k = key - PF_KEY_TRIG0, id = pf_key_fx[k];
+            pf_down &= ~(1u << k);
+            if (pf_func >> k & 1u) { pf_func &= ~(1u << k); return 1; }
+            if (pf_phys >> id & 1u) {
+                pf_phys &= ~(1u << id);
+                if (pf_ticks - pf_press_at[k] < PF_TAP_TICKS) pf_latch |= 1u << id;   /* a tap latches */
+                pf_refresh();
+            }
             return 1;
         }
         return 0;
@@ -180,7 +216,7 @@ int pf_key(void *brain, const void *ev)
         if (pf_trk_pending && pf_ticks - pf_trk_at <= PF_DOUBLE_TICKS) {
             pf_trk_pending = 0;
             pf_open = 1;
-            pf_swallow = PF_KEY_TRK;
+            pf_swallow |= 1u << PF_KEY_TRK;
             pf_dirty = 1;
             return 1;
         }
@@ -188,19 +224,31 @@ int pf_key(void *brain, const void *ev)
         pf_trk_pending = 1;
         return 0;
     }
-    if (key == PF_KEY_NO) {                        /* closes, and keeps NO's release */
-        if (!repeat) { pf_swallow = PF_KEY_NO; pf_close(); }
+    if (key == PF_KEY_NO) {                        /* closes, turns everything off, keeps NO's release */
+        if (!repeat) { pf_swallow |= 1u << PF_KEY_NO; pf_close(); }
         return 1;
     }
-    if (key == PF_KEY_PAGE) return 1;              /* banks come later */
+    if (key == PF_KEY_PAGE) {
+        if (!repeat) { pf_swallow |= 1u << PF_KEY_PAGE; pf_bank ^= 1u; pf_dirty = 1; }
+        return 1;
+    }
     if (key >= PF_KEY_TRIG0 && key < PF_KEY_TRIG0 + 16) {
-        unsigned int k = key - PF_KEY_TRIG0;
-        if (!repeat) {
-            pf_down |= 1u << k;
-            if (pf_table[k].kind) {
-                pf_held |= 1u << k;
-                pf_refresh();
-            }
+        unsigned int k = key - PF_KEY_TRIG0, id;
+        if (repeat) return 1;
+        pf_down |= 1u << k;
+        if (flags & 2u) {                          /* FUNC + trig: which tracks the effects touch */
+            pf_func |= 1u << k;
+            if (k < PF_TRACKS) pf_include ^= 1u << k;
+            else if (k == PF_TRACKS) pf_include = 0xfffu;
+            pf_dirty = 1;
+            return 1;
+        }
+        id = pf_bank * 16u + k;
+        pf_key_fx[k] = (unsigned char)id;
+        if (PF_FX(id)->kind) {
+            if (pf_latch >> id & 1u) pf_latch &= ~(1u << id);       /* tap a latched effect: off */
+            else { pf_phys |= 1u << id; pf_press_at[k] = pf_ticks; }
+            pf_refresh();
         }
         return 1;
     }
@@ -240,15 +288,21 @@ static void pf_text(void *bmp, int x, int base, const char *s)
 
 void pf_draw(void *bmp, void *ctrl)
 {
-    unsigned int k, h = pf_held;
-    int x = 20;
+    unsigned int k, t, h = pf_held, inc = pf_include;
+    char head[10] = "PERF FX 1";
     (void)ctrl;
     if (!pf_open) return;
+    head[8] = (char)('1' + pf_bank);
     fw_fillrect(bmp, 18, 54, 127, 63, 0);
-    pf_text(bmp, x, 60, "PERF FX");
-    x += 36;
-    for (k = 0; k < 16; k++)
-        if ((h >> k & 1u) && pf_table[k].name[0]) { pf_text(bmp, x, 60, pf_table[k].name); break; }
+    pf_text(bmp, 20, 60, head);
+    if (pf_latch) pf_text(bmp, 60, 60, "L");
+    for (k = 0; k < 32; k++)
+        if ((h >> k & 1u) && PF_FX(k)->name[0]) { pf_text(bmp, 68, 60, PF_FX(k)->name); break; }
+    for (t = 0; t < PF_TRACKS; t++) {              /* the tracks the effects touch: a block, or a dot when left out */
+        int x = 20 + 6 * (int)t;
+        if (inc >> t & 1u) fw_fillrect(bmp, x, 62, x + 3, 63, 1);
+        else fw_fillrect(bmp, x, 63, x, 63, 1);
+    }
 }
 
 static int initialize(const struct st_smz_api *api)

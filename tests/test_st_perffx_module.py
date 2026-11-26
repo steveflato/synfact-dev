@@ -1,4 +1,4 @@
-"""perffx-st 0.1.0: the key handling and the two engines in Unicorn.
+"""perffx-st 0.2.0: the key handling and the two engines in Unicorn.
 
 Compiles mods/perffx-st/main.c with the configured ColdFire compiler, links it
 alone and calls it. It checks: the module refuses a host before API 21 and
@@ -9,8 +9,10 @@ pressed and released, and other keys pass; each pitch effect (jumps, the five
 ramps), their sum and the clamps move the 12 pitches as the table says, the
 interest is PITCH while one is down and 0 after; the gate drops note-ons of
 the tracks it names (the sequencer's and live ones) and passes note-offs; NO
-closes, frees every key and takes its own release; nothing is drawn while
-closed.
+a tap latches and a hold is momentary; PAGE switches the two banks; FUNC + a trig
+key includes or excludes a track for the pitch effects and the mutes; NO closes,
+frees every key and every latch and takes its own release; nothing is drawn
+while closed.
 
 It does not run the real OS or the core's dispatcher.
 
@@ -173,15 +175,35 @@ def check_open(image, sym, offs):
     print('open: a second TRK tap within 12 ticks opens and is taken once; late, interrupted and repeat taps stay native')
 
 
+def hold(u, k, flags=DOWN):
+    r = u.key(trig(k), flags)
+    u.tick(10)                          # longer than a tap: the effect is momentary
+    return r
+
+
+def rel(u, k, flags=UP):
+    return u.key(trig(k), flags)
+
+
+def tap(u, k):
+    r = u.key(trig(k), DOWN)
+    u.tick(2)
+    return r, u.key(trig(k), UP)
+
+
+def on(u):
+    return u.interest[-1]
+
+
 def check_keys(image, sym, offs):
     u = opened(image, sym, offs)
     assert u.key(KEY_PLAY, DOWN) == 0 and u.key(KEY_PLAY, UP) == 0 and u.key(20, DOWN) == 0   # other keys pass
-    assert u.key(KEY_PAGE, DOWN) == 1
+    assert u.key(KEY_PAGE, DOWN) == 1 and u.key(KEY_PAGE, UP) == 1 and u.key(KEY_PAGE, UP) == 0   # PAGE: taken, release once
     assert u.key(trig(15), DOWN) == 1 and u.key(trig(15), UP) == 1                   # an unassigned key: taken, no effect
-    assert u.interest[-1] == (sym['pf_native'], 0)
-    u.key(trig(0), DOWN)
-    assert u.key(trig(0), REPEAT) == 1 and u.key(trig(0), UP) == 1 and u.key(trig(0), UP) == 0
-    print('keys: trig keys taken pressed, repeated and released; PLAY and others pass; unassigned keys do nothing')
+    assert on(u) == (sym['pf_native'], 0)
+    hold(u, 0)
+    assert u.key(trig(0), REPEAT) == 1 and rel(u, 0) == 1 and rel(u, 0) == 0
+    print('keys: trig keys taken pressed, repeated and released; PAGE taken with its release; PLAY and others pass; unassigned keys do nothing')
 
 
 def check_pitch(image, sym, offs):
@@ -189,30 +211,30 @@ def check_pitch(image, sym, offs):
     base = [(60 + t) << 16 for t in range(12)]
     assert u.pitch(base)[1] == base                                                  # nothing down: unchanged
     for k, off in ((0, 12), (1, -12), (2, 7), (3, -7)):
-        u.key(trig(k), DOWN)
-        assert u.interest[-1] == (sym['pf_native'], 1 << PITCH)
+        hold(u, k)
+        assert on(u) == (sym['pf_native'], 1 << PITCH)
         r, got = u.pitch(base)
         assert r == 0 and got == [p + off * SEMI for p in base], (k, got)
-        u.key(trig(k), UP)
-        assert u.interest[-1] == (sym['pf_native'], 0) and u.pitch(base)[1] == base
-    u.key(trig(0), DOWN); u.key(trig(3), DOWN)                                       # +12 and -7
+        rel(u, k)
+        assert on(u) == (sym['pf_native'], 0) and u.pitch(base)[1] == base
+    hold(u, 0); hold(u, 3)                                                           # +12 and -7
     assert u.pitch(base)[1] == [p + 5 * SEMI for p in base]
-    u.key(trig(3), UP)
-    assert u.interest[-1] == (sym['pf_native'], 1 << PITCH)
-    u.key(trig(0), UP)
+    rel(u, 3)
+    assert on(u) == (sym['pf_native'], 1 << PITCH)
+    rel(u, 0)
     low = [1 << 16, 0, 5 << 16] + [60 << 16] * 9
-    u.key(trig(1), DOWN)
+    hold(u, 1)
     assert u.pitch(low)[1][:3] == [0, 0, 0] and u.pitch(low)[1][3] == 48 << 16     # clamped at 0
-    u.key(trig(1), UP); u.key(trig(0), DOWN)
+    rel(u, 1); hold(u, 0)
     assert u.pitch([126 << 16] + [60 << 16] * 11)[1][0] == 127 << 16                 # clamped at 127
-    u.key(trig(0), UP)
+    rel(u, 0)
     print('pitch: jumps, their sum and the clamps; interest is PITCH while one is down, 0 after')
-    steps = {4: (-96, 4194), 5: (-96, 11984), 6: (-12, 3495), 7: (-36, 3145), 8: (24, 2097)}
+    steps = {4: (-96, 3146), 5: (-96, 8988), 6: (-12, 2621), 7: (-36, 2359), 8: (24, 1573)}
     for k, (semis, step) in steps.items():
         target = semis * SEMI
-        u.key(trig(k), DOWN)
+        hold(u, k)
         cur = 0
-        for n in range(1, 2000):
+        for n in range(1, 2500):
             cur = max(cur - step, target) if target < 0 else min(cur + step, target)
             got = u.pitch([(64 << 16)] * 12)[1][0]
             want = min(max((64 << 16) + cur, 0), 127 << 16)
@@ -221,46 +243,128 @@ def check_pitch(image, sym, offs):
                 break
         assert cur == target, k
         assert u.pitch([64 << 16] * 12)[1][0] == min(max((64 << 16) + target, 0), 127 << 16)   # holds at the target
-        u.key(trig(k), UP)
-        u.key(trig(k), DOWN)                                                         # pressed again: from zero
+        rel(u, k)
+        hold(u, k)                                                                   # pressed again: from zero
         first = u.pitch([64 << 16] * 12)[1][0]
         assert first == (64 << 16) + (-step if target < 0 else step), (k, first)
-        u.key(trig(k), UP)
+        rel(u, k)
     assert u.pitch([64 << 16] * 12, count=5)[1][5] == 64 << 16                       # a count of 5 touches five
-    print('ramps: tape stop, stop fast, half speed, dive and rise step as the table says, hold at the target, restart from zero')
+    print('ramps: five ramps step as the table says, hold at the target, restart from zero')
 
 
 def check_gate(image, sym, offs):
     u = opened(image, sym, offs)
     assert u.note(0) == (0, 0)                                                       # nothing down: passes
-    u.key(trig(10), DOWN)                                                            # MUTE ALL
-    assert u.interest[-1] == (sym['pf_native'], 1 << NOTE_ACCEPT)
+    hold(u, 10)                                                                      # MUTE ALL
+    assert on(u) == (sym['pf_native'], 1 << NOTE_ACCEPT)
     for tr in range(12):
         assert u.note(tr, 1, 1) == (1, 1) and u.note(tr, 1, 2) == (1, 1), tr         # sequencer and live
     assert u.note(0, 2, 1) == (0, 0) and u.note(3, 2, 2) == (0, 0)                   # note-offs pass
     assert u.note(12, 1, 1) == (0, 0)                                                # the FX track is not a track
-    u.key(trig(10), UP)
-    assert u.interest[-1] == (sym['pf_native'], 0) and u.note(0) == (0, 0)
-    u.key(trig(11), DOWN)                                                            # MUTE ODD: tracks 1, 3, 5...
+    rel(u, 10)
+    assert on(u) == (sym['pf_native'], 0) and u.note(0) == (0, 0)
+    hold(u, 11)                                                                      # MUTE ODD: tracks 1, 3, 5...
     assert [u.note(t)[0] for t in range(12)] == [1, 0] * 6
-    u.key(trig(11), UP); u.key(trig(12), DOWN)                                       # MUTE EVEN
+    rel(u, 11); hold(u, 12)                                                          # MUTE EVEN
     assert [u.note(t)[0] for t in range(12)] == [0, 1] * 6
-    u.key(trig(11), DOWN)                                                            # both: everything
+    hold(u, 11)                                                                      # both: everything
     assert [u.note(t)[0] for t in range(12)] == [1] * 12
-    u.key(trig(11), UP); u.key(trig(12), UP)
-    u.key(trig(0), DOWN); u.key(trig(10), DOWN)                                      # pitch and gate together
-    assert u.interest[-1] == (sym['pf_native'], 1 << PITCH | 1 << NOTE_ACCEPT)
+    rel(u, 11); rel(u, 12)
+    hold(u, 0); hold(u, 10)                                                          # pitch and gate together
+    assert on(u) == (sym['pf_native'], 1 << PITCH | 1 << NOTE_ACCEPT)
     print('gate: note-ons of the named tracks are skipped (sequencer and live), note-offs pass, nothing outside 12 tracks, masks combine')
+
+
+def check_latch(image, sym, offs):
+    u = opened(image, sym, offs)
+    base = [(60 + t) << 16 for t in range(12)]
+    assert tap(u, 0) == (1, 1)                                                       # a tap: taken both ways, latches
+    assert on(u) == (sym['pf_native'], 1 << PITCH) and u.pitch(base)[1] == [p + 12 * SEMI for p in base]
+    assert tap(u, 0) == (1, 1)                                                       # tap it again: off
+    assert on(u) == (sym['pf_native'], 0) and u.pitch(base)[1] == base
+    hold(u, 0); rel(u, 0)                                                            # a hold is momentary
+    assert on(u) == (sym['pf_native'], 0)
+    tap(u, 2); tap(u, 3)                                                             # latches add: +7 and -7
+    assert u.pitch(base)[1] == base and on(u) == (sym['pf_native'], 1 << PITCH)
+    hold(u, 1)                                                                       # hold on top of a latch
+    assert u.pitch(base)[1] == [p - 12 * SEMI for p in base]
+    rel(u, 1)
+    assert u.pitch(base)[1] == base and on(u) == (sym['pf_native'], 1 << PITCH)
+    tap(u, 2)
+    assert u.pitch(base)[1] == [p - 7 * SEMI for p in base]
+    tap(u, 10)                                                                       # a latched mute
+    assert on(u) == (sym['pf_native'], 1 << PITCH | 1 << NOTE_ACCEPT) and u.note(4)[0] == 1
+    tap(u, 4)                                                                        # a latched ramp keeps going
+    for _ in range(3):
+        u.pitch(base)
+    assert u.pitch(base)[1][0] == base[0] - 7 * SEMI - 4 * 3146
+    assert u.key(KEY_NO, DOWN) == 1                                                  # NO turns every latch off
+    assert on(u) == (sym['pf_native'], 0) and u.note(4)[0] == 0
+    print('latch: a tap latches, a second tap clears, a hold is momentary, latches and holds add, NO clears every latch')
+
+
+def check_banks(image, sym, offs):
+    u = opened(image, sym, offs)
+    base = [(60 + t) << 16 for t in range(12)]
+    assert u.key(KEY_PAGE, DOWN) == 1 and u.key(KEY_PAGE, UP) == 1                   # bank 2
+    hold(u, 0)
+    assert u.pitch(base)[1] == [p + 24 * SEMI for p in base]
+    rel(u, 0); hold(u, 3)
+    assert u.pitch(base)[1] == [p - 1 * SEMI for p in base]
+    rel(u, 3); hold(u, 10)                                                           # MUTE 1 4
+    assert [u.note(t)[0] for t in range(12)] == [1] * 4 + [0] * 8
+    rel(u, 10); hold(u, 12)                                                          # MUTE 9 12
+    assert [u.note(t)[0] for t in range(12)] == [0] * 8 + [1] * 4
+    rel(u, 12)
+    hold(u, 6)                                                                       # SLOW RISE
+    assert u.pitch(base)[1][0] == base[0] + 524
+    rel(u, 6)
+    hold(u, 0)                                                                       # held from bank 2, then back to bank 1
+    assert u.key(KEY_PAGE, DOWN) == 1 and u.key(KEY_PAGE, UP) == 1
+    assert u.pitch(base)[1] == [p + 24 * SEMI for p in base]                         # still bank 2's effect
+    assert rel(u, 0) == 1 and u.pitch(base)[1] == base                               # its release ends it
+    hold(u, 0)                                                                       # now bank 1's OCT UP
+    assert u.pitch(base)[1] == [p + 12 * SEMI for p in base]
+    rel(u, 0)
+    print('banks: PAGE switches, bank 2 effects, a key held across a switch keeps its own effect')
+
+
+def check_include(image, sym, offs):
+    u = opened(image, sym, offs)
+    base = [(60 + t) << 16 for t in range(12)]
+    FUNC = DOWN | 2
+    assert u.key(trig(1), FUNC) == 1 and u.key(trig(1), UP | 2) == 1                 # FUNC + trig 2: track 2 out
+    assert on(u) == (sym['pf_native'], 0)                                            # not an effect
+    hold(u, 0)
+    got = u.pitch(base)[1]
+    assert got[1] == base[1] and all(got[i] == base[i] + 12 * SEMI for i in range(12) if i != 1)
+    rel(u, 0)
+    assert u.key(trig(1), FUNC) == 1 and u.key(trig(1), UP) == 1                     # back in
+    hold(u, 0)
+    assert u.pitch(base)[1] == [p + 12 * SEMI for p in base]
+    rel(u, 0)
+    for k in (0, 2, 4):
+        u.key(trig(k), FUNC); u.key(trig(k), UP)                                     # tracks 1, 3, 5 out
+    hold(u, 10)                                                                      # MUTE ALL skips them
+    assert [u.note(t)[0] for t in range(12)] == [0, 1, 0, 1, 0] + [1] * 7
+    rel(u, 10)
+    u.key(trig(12), FUNC); u.key(trig(12), UP)                                       # FUNC + 13: all back in
+    hold(u, 10)
+    assert [u.note(t)[0] for t in range(12)] == [1] * 12
+    rel(u, 10)
+    assert u.key(trig(14), FUNC) == 1 and u.key(trig(14), UP) == 1 and on(u) == (sym['pf_native'], 0)   # FUNC + 15: nothing
+    assert u.draw() > 0
+    print('include: FUNC + trig 1..12 toggles a track for pitch and mutes, FUNC + 13 brings all back, no effect starts')
 
 
 def check_close(image, sym, offs):
     u = opened(image, sym, offs)
-    u.key(trig(0), DOWN); u.key(trig(10), DOWN)
+    hold(u, 0); hold(u, 10)
     assert u.key(KEY_NO, DOWN) == 1                                                  # NO closes and frees every key
-    assert u.interest[-1] == (sym['pf_native'], 0)
+    assert on(u) == (sym['pf_native'], 0)
     assert u.pitch([60 << 16] * 12)[1] == [60 << 16] * 12 and u.note(0) == (0, 0)
     assert u.key(KEY_NO, UP) == 1 and u.key(KEY_NO, UP) == 0                         # its release is taken once
-    assert u.key(trig(0), UP) == 1 and u.key(trig(0), UP) == 0                       # a key held when NO closed: its release is ours, once
+    assert rel(u, 0) == 1 and rel(u, 0) == 0                                         # a key held when NO closed: its release is ours, once
     assert u.key(trig(0), DOWN) == 0 and u.key(trig(0), UP) == 0                     # closed: the keys are native again
     assert u.draw() == 0
     u.tick(3)
@@ -278,7 +382,8 @@ def main():
         print('SKIP: no ColdFire compiler'); return
     image, sym = build(args.cc)
     offs = offsets(args.cc)
-    for check in (check_init, check_open, check_keys, check_pitch, check_gate, check_close):
+    for check in (check_init, check_open, check_keys, check_pitch, check_gate, check_latch, check_banks,
+                  check_include, check_close):
         check(image, sym, offs)
 
 
