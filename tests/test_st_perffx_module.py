@@ -9,14 +9,14 @@ pressed and released, and other keys pass; each pitch effect (jumps, the five
 ramps), their sum and the clamps move the 12 pitches as the table says, the
 interest is PITCH while one is down and 0 after; the gate drops note-ons of
 the tracks it names (the sequencer's and live ones) and passes note-offs; NO
-keys are momentary, and FUNC while some are held latches them (on a latched one: off); PAGE switches the two banks; FUNC + a trig
+keys are momentary, and FUNC while some are held latches them (a press of a latched key unlatches it); PAGE switches the two banks; TRK held + a trig
 key includes or excludes a track for the pitch effects and the mutes; NO closes,
 frees every key and every latch and takes its own release; nothing is drawn
 while closed. It also checks the LED view: opening makes one view (the OS's constructor,
 not opaque, a copied vtable with the module's type and destructor, a LedHandler at
 +50h) and pushes it on the stack, only over the MainScreen; the trig key LEDs it sets
 for each state (blue jumps, orange ramps, red mutes, unlit gaps, white held, yellow
-latched, tracks green/dim red with FUNC down); nothing is set when another view is on
+latched, tracks green/dim red with TRK held); nothing is set when another view is on
 top; NO and the destructor end it.
 
 It does not run the real OS or the core's dispatcher.
@@ -411,31 +411,34 @@ def check_banks(image, sym, offs):
 def check_include(image, sym, offs):
     u = opened(image, sym, offs)
     base = [(60 + t) << 16 for t in range(12)]
-    FUNC = DOWN | 2
-    assert u.key(trig(1), FUNC) == 1 and u.key(trig(1), UP | 2) == 1                 # FUNC + trig 2: track 2 out
+    inc = lambda k: (u.key(KEY_TRK, DOWN), u.key(trig(k), DOWN), u.key(trig(k), UP), u.key(KEY_TRK, UP))
+    assert u.key(KEY_TRK, DOWN) == 1 and u.key(trig(1), DOWN) == 1 and u.key(trig(1), UP) == 1   # TRK held + trig 2: track 2 out
+    assert u.key(KEY_TRK, UP) == 1 and u.key(KEY_TRK, UP) == 0                        # TRK's release is ours, once
     assert on(u) == (sym['pf_native'], 0)                                            # not an effect
     hold(u, 0)
     got = u.pitch(base)[1]
     assert got[1] == base[1] and all(got[i] == base[i] + 12 * SEMI for i in range(12) if i != 1)
     rel(u, 0)
-    assert u.key(trig(1), FUNC) == 1 and u.key(trig(1), UP) == 1                     # back in
+    inc(1)                                                                           # back in
     hold(u, 0)
     assert u.pitch(base)[1] == [p + 12 * SEMI for p in base]
     rel(u, 0)
     for k in (0, 2, 4):
-        u.key(trig(k), FUNC); u.key(trig(k), UP)                                     # tracks 1, 3, 5 out
+        inc(k)                                                                       # tracks 1, 3, 5 out
     hold(u, 10)                                                                      # MUTE ALL skips them
     assert [u.note(t)[0] for t in range(12)] == [0, 1, 0, 1, 0] + [1] * 7
     rel(u, 10)
-    assert u.key(KEY_PAGE, FUNC) == 0 and u.key(KEY_PAGE, UP | 2) == 0               # FUNC + PAGE stays the OS's
+    assert u.key(KEY_PAGE, DOWN | 2) == 0 and u.key(KEY_PAGE, UP | 2) == 0           # FUNC + PAGE stays the OS's
     u.key(KEY_NO, DOWN); u.key(KEY_NO, UP)                                           # closing puts every track back
     u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP); u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP)
     hold(u, 10)
     assert [u.note(t)[0] for t in range(12)] == [1] * 12
     rel(u, 10)
-    assert u.key(trig(14), FUNC) == 1 and u.key(trig(14), UP) == 1 and on(u) == (sym['pf_native'], 0)   # FUNC + 15: nothing
+    u.key(KEY_TRK, DOWN)
+    assert u.key(trig(14), DOWN) == 1 and u.key(trig(14), UP) == 1 and on(u) == (sym['pf_native'], 0)   # TRK + 15: nothing
+    u.key(KEY_TRK, UP)
     assert u.draw() > 0
-    print('include: FUNC + trig 1..12 toggles a track for pitch and mutes, closing brings all back, FUNC + PAGE stays native, no effect starts')
+    print('include: TRK held + trig 1..12 toggles a track for pitch and mutes, closing brings all back, FUNC + PAGE stays native, no effect starts')
 
 
 def check_close(image, sym, offs):
@@ -501,15 +504,15 @@ def check_view(image, sym, offs):
     got = leds(u)
     assert got[1] == BLUE and got[5] == ORANGE and got[8] == UNLIT and got[11] == RED and got[14] == UNLIT
     u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP)
-    assert u.key(KEY_FUNC, DOWN) == 0                                                # FUNC alone: native, and the keys show the tracks
+    assert u.key(KEY_TRK, DOWN) == 1                                                 # TRK held: the keys show the tracks
     got = leds(u)
     assert all(got[k] == GREEN for k in range(1, 13)) and got[13] == UNLIT and got[14] == UNLIT and got[16] == UNLIT
-    u.key(trig(1), DOWN | 2); u.key(trig(1), UP | 2)                                 # track 2 out
+    u.key(trig(1), DOWN); u.key(trig(1), UP)                                         # track 2 out
     got = leds(u)
     assert got[2] == DIMRED and got[1] == GREEN
-    u.key(KEY_FUNC, UP)
-    assert leds(u)[1] == YELLOW                                                      # FUNC up: effects again
-    print('leds: bank 1 by category (blue jumps, orange ramps, red mutes, unlit gaps), white held, yellow latched, bank 2, tracks with FUNC down')
+    u.key(KEY_TRK, UP)
+    assert leds(u)[1] == YELLOW                                                      # TRK up: effects again
+    print('leds: bank 1 by category (blue jumps, orange ramps, red mutes, unlit gaps), white held, yellow latched, bank 2, tracks with TRK held')
 
     assert leds(u, handler=ALLOC + 16) == {}                                         # another handler: not ours
     other = bytes(u.u.mem_read(NP + 8, 4))

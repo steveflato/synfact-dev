@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * perffx-st 0.4.3 (prototype): performance effects on the 16 trig keys. See README.md.
+ * perffx-st 0.4.4 (prototype): performance effects on the 16 trig keys. See README.md.
  *
  * Double-tap TRK to open (the first tap keeps its native action; the second
  * is taken, as the recorder does with SOUND). While it is open the 16 trig
  * keys are effects: hold to apply and release to resume. Press FUNC while
  * one or more are held and they latch on, so the keys can be let go; press
- * a latched effect's key and it turns off. PAGE switches the two banks, FUNC
- * then a trig key 1..12 includes or excludes that track (all
- * are back in when the mode is closed). NO closes it and turns everything off. Other keys (PLAY, STOP, FUNC, the
+ * a latched effect's key and it turns off. PAGE switches the two banks, TRK
+ * held plus a trig key 1..12 includes or excludes that track (all are back
+ * in when the mode is closed; FUNC + a key is the OS's quick mute and is not ours). NO closes it and turns everything off. Other keys (PLAY, STOP, FUNC, the
  * encoders) stay native.
  *
  * Two engines, both on the core's native bus, both declared only while a key
@@ -18,7 +18,7 @@
  * LEDs: while it is open the module owns an invisible view on the UI stack
  * (made as arp-st makes its own) that is a LedHandler, so the 16 trig keys
  * are lit by category: blue pitch jumps, orange ramps, red mutes, dark where
- * a key has no effect; white while held, yellow when latched. With FUNC down
+ * a key has no effect; white while held, yellow when latched. With TRK held
  * they show the tracks instead: green in, dim red out, cyan = all.
  * Not here yet: stutter, bit crush, step effects, a kept track selection. */
 #include <syntakt/modules.h>
@@ -89,7 +89,7 @@ static unsigned int pf_latch __attribute__((section(".data"))) = 0;             
 static unsigned int pf_down __attribute__((section(".data"))) = 0;              /* bit k: trig key k+1 went down while open: its release is ours */
 static unsigned int pf_bank __attribute__((section(".data"))) = 0;
 static unsigned int pf_last __attribute__((section(".data"))) = 0;               /* the effect id last pressed or latched: the one the bar names */
-static unsigned int pf_func_down __attribute__((section(".data"))) = 0;          /* FUNC is down (seen on every key event) */
+static unsigned int pf_trk_down __attribute__((section(".data"))) = 0;           /* TRK is held in the mode: the trig keys pick tracks */
 static unsigned char *pf_view __attribute__((section(".data"))) = 0;             /* the LED view, while open */
 static unsigned char *pf_manager __attribute__((section(".data"))) = 0;
 static unsigned int pf_vtable[19] __attribute__((section(".data")));
@@ -220,7 +220,7 @@ static unsigned int pf_palette(unsigned int k, unsigned int *mode)
 {
     unsigned int id = pf_bank * 16u + k;
     *mode = 2;
-    if (pf_func_down) {                            /* FUNC: the tracks the effects touch */
+    if (pf_trk_down) {                             /* TRK held: the tracks the effects touch */
         if (k < PF_TRACKS) return (pf_include >> k & 1u) ? 9u : 4u;
         *mode = 1;
         return 2u;
@@ -258,6 +258,7 @@ static void pf_dispose(void *v)
         pf_open = 0;
         pf_phys = 0;
         pf_latch = 0;
+        pf_trk_down = 0;
         pf_forget(v);
         pf_refresh();
     }
@@ -315,6 +316,7 @@ static void pf_close(void)
     pf_open = 0;
     pf_phys = 0;
     pf_latch = 0;
+    pf_trk_down = 0;
     pf_include = 0xfffu;                           /* every track is back in the next time */
     pf_refresh();
     if (v) {
@@ -323,15 +325,15 @@ static void pf_close(void)
     }
 }
 
-/* ev_key, UI task. flags: bit 0 down, bit 1 FUNC held, bit 3 repeat; a release has bit 0 clear. */
+/* ev_key, UI task. flags: bit 0 down, bit 1 FUNC held (the OS then puts its mute view on top), bit 3 repeat; a release has bit 0 clear. */
 int pf_key(void *brain, const void *ev)
 {
     const unsigned char *e = ev;
     unsigned int key = be32(e + 12), flags = be32(e + 16);
     int down = flags & 1u, repeat = (flags & 8u) != 0;
-    if (key == PF_KEY_FUNC && !repeat) pf_func_down = down;      /* for the LEDs; the key itself is handled below */
 
     if (!down) {                                   /* releases */
+        if (key == PF_KEY_TRK) { pf_trk_down = 0; pf_dirty = 1; }
         if (key < 32 && (pf_swallow >> key & 1u)) { pf_swallow &= ~(1u << key); return 1; }
         if (key >= PF_KEY_TRIG0 && key < PF_KEY_TRIG0 + 16 && (pf_down >> (key - PF_KEY_TRIG0) & 1u)) {
             unsigned int k = key - PF_KEY_TRIG0, id = pf_key_fx[k];
@@ -365,9 +367,16 @@ int pf_key(void *brain, const void *ev)
         if (!repeat) { pf_swallow |= 1u << PF_KEY_NO; pf_close(); }
         return 1;
     }
+    if (key == PF_KEY_TRK) {                       /* TRK held + a trig key 1..12: which tracks the effects touch */
+        if (repeat) return 1;
+        pf_trk_down = 1;
+        pf_swallow |= 1u << PF_KEY_TRK;
+        pf_dirty = 1;
+        return 1;
+    }
     if (key == PF_KEY_FUNC) {                      /* FUNC while effects are held: they latch, and the keys can go */
         if (repeat) return (pf_swallow >> PF_KEY_FUNC) & 1u;
-        if (!pf_phys) return 0;                    /* otherwise native, for FUNC + a trig key */
+        if (!pf_phys) return 0;                    /* otherwise native (the OS's own FUNC) */
         pf_latch |= pf_phys;
         pf_phys = 0;
         pf_swallow |= 1u << PF_KEY_FUNC;
@@ -383,7 +392,7 @@ int pf_key(void *brain, const void *ev)
         unsigned int k = key - PF_KEY_TRIG0, id;
         if (repeat) return 1;
         pf_down |= 1u << k;
-        if (flags & 2u) {                          /* FUNC + trig: which tracks the effects touch */
+        if (pf_trk_down) {                         /* TRK + trig: which tracks the effects touch */
             pf_func |= 1u << k;
             if (k < PF_TRACKS) pf_include ^= 1u << k;
             pf_dirty = 1;
