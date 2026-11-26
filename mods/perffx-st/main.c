@@ -1,12 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * perffx-st 0.4.0 (prototype): performance effects on the 16 trig keys. See README.md.
+ * perffx-st 0.4.1 (prototype): performance effects on the 16 trig keys. See README.md.
  *
  * Double-tap TRK to open (the first tap keeps its native action; the second
  * is taken, as the recorder does with SOUND). While it is open the 16 trig
  * keys are effects: hold to apply and release to resume. Press FUNC while
- * one or more are held and each toggles its latch: an effect that was not
- * latched latches on (so the key can be let go), one that was latched is
- * unlatched (and goes off when its key does). PAGE switches the two banks, FUNC
+ * one or more are held and they latch on, so the keys can be let go; press
+ * a latched effect's key and it turns off. PAGE switches the two banks, FUNC
  * then a trig key 1..12 includes or excludes that track, FUNC then 13
  * includes all. NO closes it and turns everything off. Other keys (PLAY, STOP, FUNC, the
  * encoders) stay native.
@@ -20,7 +19,7 @@
  * (made as arp-st makes its own) that is a LedHandler, so the 16 trig keys
  * are lit by category: blue pitch jumps, orange ramps, red mutes, dark where
  * a key has no effect; white while held, yellow when latched. With FUNC down
- * they show the tracks instead: green in, dim red out, white = all.
+ * they show the tracks instead: green in, dim red out, cyan = all.
  * Not here yet: stutter, bit crush, step effects, a kept track selection. */
 #include <syntakt/modules.h>
 #include <syntakt/host.h>
@@ -89,6 +88,7 @@ static unsigned int pf_phys __attribute__((section(".data"))) = 0;              
 static unsigned int pf_latch __attribute__((section(".data"))) = 0;              /* bit id: latched on */
 static unsigned int pf_down __attribute__((section(".data"))) = 0;              /* bit k: trig key k+1 went down while open: its release is ours */
 static unsigned int pf_bank __attribute__((section(".data"))) = 0;
+static unsigned int pf_last __attribute__((section(".data"))) = 0;               /* the effect id last pressed or latched: the one the bar names */
 static unsigned int pf_func_down __attribute__((section(".data"))) = 0;          /* FUNC is down (seen on every key event) */
 static unsigned char *pf_view __attribute__((section(".data"))) = 0;             /* the LED view, while open */
 static unsigned char *pf_manager __attribute__((section(".data"))) = 0;
@@ -222,7 +222,7 @@ static unsigned int pf_palette(unsigned int k, unsigned int *mode)
     *mode = 2;
     if (pf_func_down) {                            /* FUNC: the tracks the effects touch */
         if (k < PF_TRACKS) return (pf_include >> k & 1u) ? 9u : 4u;
-        if (k == PF_TRACKS) return 20u;
+        if (k == PF_TRACKS) return 25u;            /* all: cyan */
         *mode = 1;
         return 2u;
     }
@@ -365,14 +365,11 @@ int pf_key(void *brain, const void *ev)
         if (!repeat) { pf_swallow |= 1u << PF_KEY_NO; pf_close(); }
         return 1;
     }
-    if (key == PF_KEY_FUNC) {                      /* FUNC while effects are held: each toggles its latch */
-        unsigned int on, off;
+    if (key == PF_KEY_FUNC) {                      /* FUNC while effects are held: they latch, and the keys can go */
         if (repeat) return (pf_swallow >> PF_KEY_FUNC) & 1u;
         if (!pf_phys) return 0;                    /* otherwise native, for FUNC + a trig key */
-        on = pf_phys & ~pf_latch;                  /* not latched: latch, and the key can go */
-        off = pf_phys & pf_latch;                  /* latched: unlatch; still on until its key goes */
-        pf_latch = (pf_latch | on) & ~off;
-        pf_phys = off;
+        pf_latch |= pf_phys;
+        pf_phys = 0;
         pf_swallow |= 1u << PF_KEY_FUNC;
         pf_refresh();
         return 1;
@@ -395,7 +392,9 @@ int pf_key(void *brain, const void *ev)
         id = pf_bank * 16u + k;
         pf_key_fx[k] = (unsigned char)id;
         if (PF_FX(id)->kind) {
-            pf_phys |= 1u << id;                                     /* on while the key is down (a latched one stays on after) */
+            pf_last = id;
+            if (pf_latch >> id & 1u) pf_latch &= ~(1u << id);       /* a latched effect: this press turns it off */
+            else pf_phys |= 1u << id;                                /* otherwise on while the key is down */
             pf_refresh();
         }
         return 1;
@@ -434,18 +433,38 @@ static void pf_text(void *bmp, int x, int base, const char *s)
     }
 }
 
+/* The effect the bar names: a held one before a latched one, the last pressed
+ * of a set first, else the lowest. 0 when none; else the effect id + 1. */
+static unsigned int pf_pick(unsigned int mask)
+{
+    unsigned int k;
+    if (!mask) return 0;
+    if (mask >> pf_last & 1u) return pf_last + 1;
+    for (k = 0; k < 32; k++) if (mask >> k & 1u) return k + 1;
+    return 0;
+}
+unsigned int pf_shown(void)
+{
+    unsigned int id = pf_pick(pf_phys);
+    return id ? id : pf_pick(pf_latch);
+}
+
 void pf_draw(void *bmp, void *ctrl)
 {
-    unsigned int k, t, h = pf_held, inc = pf_include;
-    char head[10] = "PERF FX 1";
+    unsigned int k, t, n = 0, id, inc = pf_include;
+    char head[10] = "PERF FX 1", latched[3] = "L1";
     (void)ctrl;
     if (!pf_open) return;
     head[8] = (char)('1' + pf_bank);
     fw_fillrect(bmp, 18, 54, 127, 63, 0);
     pf_text(bmp, 20, 60, head);
-    if (pf_latch) pf_text(bmp, 104, 60, "LATCH");
-    for (k = 0; k < 32; k++)
-        if ((h >> k & 1u) && PF_FX(k)->name[0]) { pf_text(bmp, 60, 60, PF_FX(k)->name); break; }
+    id = pf_shown();
+    if (id) pf_text(bmp, 60, 60, PF_FX(id - 1)->name);
+    for (k = 0; k < 32; k++) n += pf_latch >> k & 1u;
+    if (n) {                                       /* how many are latched */
+        latched[1] = (char)('0' + (n > 9 ? 9 : n));
+        pf_text(bmp, 108, 60, latched);
+    }
     for (t = 0; t < PF_TRACKS; t++) {              /* the tracks the effects touch: a block, or a dot when left out */
         int x = 20 + 6 * (int)t;
         if (inc >> t & 1u) fw_fillrect(bmp, x, 62, x + 3, 63, 1);

@@ -1,4 +1,4 @@
-"""perffx-st 0.4.0: the key handling and the two engines in Unicorn.
+"""perffx-st 0.4.1: the key handling and the two engines in Unicorn.
 
 Compiles mods/perffx-st/main.c with the configured ColdFire compiler, links it
 alone and calls it. It checks: the module refuses a host before API 21 and
@@ -334,25 +334,11 @@ def check_latch(image, sym, offs):
     assert u.pitch(base)[1] == base
     rel(u, 1)
     assert u.pitch(base)[1] == [p + 12 * SEMI for p in base]
-    hold(u, 0); rel(u, 0)                                                            # a press of a latched one alone changes nothing
-    assert u.pitch(base)[1] == [p + 12 * SEMI for p in base]
-    hold(u, 0)
-    assert u.key(KEY_FUNC, DOWN) == 1                                                # latched + FUNC: unlatched, still on while held
-    assert u.pitch(base)[1] == [p + 12 * SEMI for p in base] and on(u) == (sym['pf_native'], 1 << PITCH)
-    assert rel(u, 0) == 1 and u.key(KEY_FUNC, UP) == 1                               # the key goes: off
+    assert u.key(trig(0), DOWN) == 1                                                 # a press of the latched key: off at once
     assert on(u) == (sym['pf_native'], 0) and u.pitch(base)[1] == base
-    hold(u, 0); hold(u, 2); u.key(KEY_FUNC, DOWN); rel(u, 0); rel(u, 2); u.key(KEY_FUNC, UP)   # latch two
-    assert u.pitch(base)[1] == [p + 19 * SEMI for p in base]
-    hold(u, 0); hold(u, 3)                                                           # one latched, one not: FUNC toggles each
-    u.key(KEY_FUNC, DOWN)
-    assert u.pitch(base)[1] == [p + 12 * SEMI for p in base]                         # 0 held (+12), 2 latched (+7), 3 latched (-7)
-    rel(u, 0); rel(u, 3); u.key(KEY_FUNC, UP)
-    assert u.pitch(base)[1] == base and on(u) == (sym['pf_native'], 1 << PITCH)       # 0 is off; 2 and 3 stay latched, +7 and -7
-    hold(u, 2); u.key(KEY_FUNC, DOWN); rel(u, 2); u.key(KEY_FUNC, UP)                # unlatch 2: only -7 is left
-    assert u.pitch(base)[1] == [p - 7 * SEMI for p in base]
-    assert u.key(KEY_NO, DOWN) == 1                                                  # clear for the rest
-    u.key(KEY_NO, UP)
-    u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP); u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP)
+    assert u.key(trig(0), UP) == 1 and u.key(trig(0), UP) == 0                       # its release is ours, once
+    hold(u, 0); rel(u, 0)                                                            # and a plain hold is momentary again
+    assert on(u) == (sym['pf_native'], 0)
     hold(u, 2); hold(u, 10); hold(u, 4)                                              # three held: +7, mute all, tape stop
     u.key(KEY_FUNC, DOWN)                                                            # one FUNC latches all three
     rel(u, 2); rel(u, 10); rel(u, 4); u.key(KEY_FUNC, UP)
@@ -364,16 +350,36 @@ def check_latch(image, sym, offs):
     assert u.pitch(base)[1][0] == base[0] + 7 * SEMI - 4 * 3146                      # and keeps going with no key down
     hold(u, 1); rel(u, 1)                                                            # a hold elsewhere leaves the latches
     assert on(u) == (sym['pf_native'], 1 << PITCH | 1 << NOTE_ACCEPT)
+    u.key(trig(10), DOWN); u.key(trig(10), UP)                                       # press the latched mute: only it turns off
+    assert on(u) == (sym['pf_native'], 1 << PITCH) and u.note(4)[0] == 0
+    assert u.pitch(base)[1][0] < base[0] + 7 * SEMI - 4 * 3146                       # the pitch latches go on
     assert u.key(KEY_NO, DOWN) == 1                                                  # NO turns every latch off
-    assert on(u) == (sym['pf_native'], 0) and u.note(4)[0] == 0
+    assert on(u) == (sym['pf_native'], 0)
     u.key(KEY_NO, UP)
     u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP); u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP)   # reopen
     hold(u, 0); rel(u, 0)
     assert on(u) == (sym['pf_native'], 0)                                            # reopened: momentary, nothing latched
-    # FUNC then a trig key is still the track toggle, not a latch
+    print('latch: FUNC while keys are held latches them and the keys can go; pressing a latched key turns it off; NO clears')
+
+
+def check_shown(image, sym, offs):
+    u = opened(image, sym, offs)
+    shown = lambda: u.call(sym['pf_shown'], [])
+    assert shown() == 0
     hold(u, 0)
-    assert u.key(trig(1), DOWN | 2) == 1                                             # (FUNC already down: the flag says so)
-    print('latch: FUNC while keys are held latches them and the keys can go; FUNC with a latched effect held unlatches it; NO clears')
+    assert shown() == 1                                                              # id 0 + 1
+    u.key(KEY_FUNC, DOWN); rel(u, 0); u.key(KEY_FUNC, UP)                            # latched: still named
+    assert shown() == 1
+    hold(u, 4)                                                                       # something else held: it is named, over the latch
+    assert shown() == 5
+    hold(u, 2)                                                                       # the last pressed of the held ones
+    assert shown() == 3
+    rel(u, 2)
+    assert shown() == 5                                                              # the other held one
+    rel(u, 4)
+    assert shown() == 1                                                              # back to the latched one
+    assert u.draw() > 0
+    print('shown: the bar names a held effect over a latched one, the last pressed first, and the latch again when none is held')
 
 
 def check_banks(image, sym, offs):
@@ -479,7 +485,7 @@ def check_view(image, sym, offs):
     assert rd(u, APP + 0x40 + 0x18)[0] == NP and rd(u, NP + 8)[0] == view            # on top of the stack
     print('view: one invisible view pushed over the MainScreen (OS constructor, not opaque, copied vtable, LedHandler at +50h)')
 
-    UNLIT, BLUE, ORANGE, RED, WHITE, YELLOW, GREEN, DIMRED = (1, 2), (2, 14), (2, 31), (2, 3), (2, 20), (2, 23), (2, 9), (2, 4)
+    UNLIT, BLUE, ORANGE, RED, WHITE, YELLOW, GREEN, DIMRED, CYAN = (1, 2), (2, 14), (2, 31), (2, 3), (2, 20), (2, 23), (2, 9), (2, 4), (2, 25)
     want = [BLUE] * 4 + [ORANGE] * 5 + [UNLIT] + [RED] * 3 + [UNLIT] * 3
     got = leds(u)
     assert got == {k + 1: want[k] for k in range(16)}, got                           # bank 1, idle: by category
@@ -495,7 +501,7 @@ def check_view(image, sym, offs):
     u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP)
     assert u.key(KEY_FUNC, DOWN) == 0                                                # FUNC alone: native, and the keys show the tracks
     got = leds(u)
-    assert all(got[k] == GREEN for k in range(1, 13)) and got[13] == WHITE and got[14] == UNLIT and got[16] == UNLIT
+    assert all(got[k] == GREEN for k in range(1, 13)) and got[13] == CYAN and got[14] == UNLIT and got[16] == UNLIT
     u.key(trig(1), DOWN | 2); u.key(trig(1), UP | 2)                                 # track 2 out
     got = leds(u)
     assert got[2] == DIMRED and got[1] == GREEN
@@ -551,7 +557,7 @@ def main():
         print('SKIP: no ColdFire compiler'); return
     image, sym = build(args.cc)
     offs = offsets(args.cc)
-    for check in (check_init, check_open, check_keys, check_pitch, check_gate, check_latch, check_banks,
+    for check in (check_init, check_open, check_keys, check_pitch, check_gate, check_latch, check_shown, check_banks,
                   check_include, check_close, check_view):
         check(image, sym, offs)
 

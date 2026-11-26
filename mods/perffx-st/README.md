@@ -5,17 +5,16 @@ A test build for the design in Discussion #11. Not for a pull request yet.
 **Open and close.** Double-tap TRK (two taps within 400 ms). The first tap
 keeps its native action; the second is taken. While it is open a bar over the
 header reads PERF FX and the bank (1 or 2), then the name of the effect on,
-an L if one is latched, and a row of 12 marks: a block for each track the
+an L and the count if any are latched, and a row of 12 marks: a block for each track the
 effects touch, a dot for each one left out. NO closes it and turns every effect
 off. PLAY, STOP, FUNC and the encoders stay native.
 
 **Hold or latch.** An effect is on while its trig key is down. Press FUNC
-while effect keys are held and each toggles its latch: an effect that was not
-latched latches on, so the key can go; one that was latched is unlatched, and
-goes off when its key does. So the same combo, effect + FUNC, turns latching on
-and off. Pressing a latched effect's key without FUNC changes nothing. NO turns
-every effect off. Held and latched effects add up. FUNC with no effect held
-stays native, so FUNC then a trig key still includes or excludes a track.
+while effect keys are held and they latch on, so the keys can go. Press a
+latched effect's key once and it turns off. NO turns every effect off. Held
+and latched effects add up, and the bar names the one you are holding over a
+latched one. FUNC with no effect held stays native, so FUNC then a trig key
+still includes or excludes a track.
 
 **Banks.** PAGE switches between the two banks. A key held across a switch
 keeps the effect it started.
@@ -60,7 +59,7 @@ declared to the core only while one of its effects is on.
 | yellow | the effect is latched |
 
 With FUNC held, keys 1 to 12 show the tracks instead: green is affected, dim
-red is left out, and key 13 (white) brings all back.
+red is left out, and key 13 (cyan) brings all back.
 
 The LEDs come from an invisible view the module pushes on the UI stack when it
 opens, made as arp-st makes its own: a View followed by a LedHandler, not
