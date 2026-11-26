@@ -1,4 +1,4 @@
-# perffx-st: performance effects on the trig keys (prototype 0.3.2)
+# perffx-st: performance effects on the trig keys (prototype 0.4.0)
 
 A test build for the design in Discussion #11. Not for a pull request yet.
 
@@ -48,8 +48,32 @@ blocks (1500 a second). The mutes skip note-ons of the gated tracks at
 ones; a note already sounding rings out, and note-offs pass. Each engine is
 declared to the core only while one of its effects is on.
 
-**Not here yet:** LED colours, a kept track selection, stutter, bit crush,
-step effects, a view of its own. Tape stop is linear in semitones, not a real
-tape curve.
+**LEDs.** While it is open the 16 trig keys are lit by what they do:
 
-`tests/test_st_perffx_module.py` runs the compiled module in Unicorn.
+| colour | meaning |
+|---|---|
+| blue | a pitch jump (octave, fifth, semitone) |
+| orange | a pitch ramp (tape stop, dive, rise) |
+| red | a mute |
+| unlit | no effect on that key |
+| white | the effect is held |
+| yellow | the effect is latched |
+
+With FUNC held, keys 1 to 12 show the tracks instead: green is affected, dim
+red is left out, and key 13 (white) brings all back.
+
+The LEDs come from an invisible view the module pushes on the UI stack when it
+opens, made as arp-st makes its own: a View followed by a LedHandler, not
+opaque, drawing nothing, so the MainScreen stays visible and keys it does not
+take pass through. It opens only over the MainScreen (not over a menu or a
+dialog). If another view is on top (a menu, the TRK track selection) the module
+stands aside: its keys and LEDs are the other view's, and held effects end as
+their keys are released. NO, or the OS letting go of the view, ends it and
+turns every effect off.
+
+**Not here yet:** stutter, bit crush, step effects, a kept track selection,
+audio effects (the buffer and bypass work belongs to GSM). Tape stop is linear
+in semitones, not a real tape curve.
+
+`tests/test_st_perffx_module.py` runs the compiled module in Unicorn, with the
+OS's view routines stubbed.

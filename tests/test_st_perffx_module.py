@@ -1,4 +1,4 @@
-"""perffx-st 0.3.2: the key handling and the two engines in Unicorn.
+"""perffx-st 0.4.0: the key handling and the two engines in Unicorn.
 
 Compiles mods/perffx-st/main.c with the configured ColdFire compiler, links it
 alone and calls it. It checks: the module refuses a host before API 21 and
@@ -12,7 +12,12 @@ the tracks it names (the sequencer's and live ones) and passes note-offs; NO
 keys are momentary, and FUNC while some are held latches them (on a latched one: off); PAGE switches the two banks; FUNC + a trig
 key includes or excludes a track for the pitch effects and the mutes; NO closes,
 frees every key and every latch and takes its own release; nothing is drawn
-while closed.
+while closed. It also checks the LED view: opening makes one view (the OS's constructor,
+not opaque, a copied vtable with the module's type and destructor, a LedHandler at
++50h) and pushes it on the stack, only over the MainScreen; the trig key LEDs it sets
+for each state (blue jumps, orange ramps, red mutes, unlit gaps, white held, yellow
+latched, tracks green/dim red with FUNC down); nothing is set when another view is on
+top; NO and the destructor end it.
 
 It does not run the real OS or the core's dispatcher.
 
@@ -31,6 +36,11 @@ from unicorn.m68k_const import UC_CPU_M68K_CFV4E, UC_M68K_REG_A7, UC_M68K_REG_D0
 CODE, DATA, STOP = 0x46100000, 0x48000000, 0x46fffff0
 EVENT, ARGS, RESULT, HOST, UI, API, INTEREST = (DATA + o for o in (0, 0x100, 0x200, 0x300, 0x400, 0x500, 0x600))
 PITCHES, CTRL, BMP = DATA + 0xc00, DATA + 0xd00, DATA + 0xe00
+APP, N0, N1, NP, MAIN, OTHER = (DATA + o for o in (0x2000, 0x2100, 0x2110, 0x2120, 0x2200, 0x2600))
+STORAGE, LEDMGR, ALLOC, ALLOC_AT = DATA + 0x2700, DATA + 0x2800, DATA + 0x3000, DATA + 0x2900
+MAIN_VT = 0x401c849c
+OS_ARGS = {0x400ffd6a: 2, 0x400ffcb8: 2, 0x4016dfac: 1, 0x400ffe22: 1, 0x400ffec6: 1, 0x400fffc0: 1,
+           0x4016efa4: 0, 0x40008220: 4, 0x40100d86: 3}
 FILLRECT = 0x400f7fb6
 PITCH, NOTE_ACCEPT = 22, 20
 KEY_FUNC, KEY_TRK, KEY_NO, KEY_PAGE, KEY_PLAY, TRIG0 = 1, 2, 13, 18, 10, 24
@@ -57,12 +67,14 @@ def offsets(cc):
     w = Path(tempfile.mkdtemp())
     src = w / 'o.c'
     src.write_text('#include <stddef.h>\n#include <syntakt/modules.h>\n#include <syntakt/host.h>\n'
-                   'const unsigned int o[2]={offsetof(struct st_machine_ui_api,host),'
-                   'offsetof(struct st_machine_host_api,native_interest)};\n')
+                   'const unsigned int o[4]={offsetof(struct st_machine_ui_api,host),'
+                   'offsetof(struct st_machine_host_api,native_interest),'
+                   'offsetof(struct st_machine_host_api,storage),'
+                   'offsetof(struct st_storage_io,alloc)};\n')
     subprocess.run([cc, '-mcpu=5475', '-I', str(ROOT / 'elekloader/sdk/include'), '-c', str(src), '-o', str(w / 'o.o')],
                    check=True)
     subprocess.run([cc[:-3] + 'objcopy', '-O', 'binary', '-j', '.rodata', str(w / 'o.o'), str(w / 'o.bin')], check=True)
-    return struct.unpack('>2I', (w / 'o.bin').read_bytes()[:8])
+    return struct.unpack('>4I', (w / 'o.bin').read_bytes()[:16])
 
 
 class Unit:
@@ -70,19 +82,42 @@ class Unit:
         self.sym, self.u = sym, Uc(UC_ARCH_M68K, UC_MODE_BIG_ENDIAN)
         u = self.u
         u.ctl_set_cpu_model(UC_CPU_M68K_CFV4E)
-        for at, n in ((0x40000000, 0x200000), (0x46000000, 0x1000000), (DATA, 0x10000)):
+        for at, n in ((0x40000000, 0x300000), (0x46000000, 0x1000000), (DATA, 0x10000)):
             u.mem_map(at, n)
         u.mem_write(CODE, image)
-        self.interest, self.fills = [], 0
-        for at, fn in ((INTEREST, self._interest), (FILLRECT, self._fill)):
+        self.interest, self.fills, self.os, self.leds = [], 0, [], {}
+        for at, fn in ((INTEREST, self._interest), (FILLRECT, self._fill), (ALLOC_AT, self._alloc)):
             u.mem_write(at, b'\x4e\x75')
             u.hook_add(UC_HOOK_CODE, fn, begin=at, end=at)
+        for at in OS_ARGS:
+            u.mem_write(at, b'\x4e\x75')
+            u.hook_add(UC_HOOK_CODE, self._os, begin=at, end=at)
 
     def _interest(self, u, at, size, _):
         self.interest.append(struct.unpack('>2I', u.mem_read(u.reg_read(UC_M68K_REG_A7) + 4, 8)))
 
     def _fill(self, u, at, size, _):
         self.fills += 1
+
+    def _alloc(self, u, at, size, _):
+        u.reg_write(UC_M68K_REG_D0, ALLOC)
+
+    def _os(self, u, at, size, _):                 # the OS routines the view code calls
+        sp = u.reg_read(UC_M68K_REG_A7)
+        n = OS_ARGS[at]
+        args = struct.unpack('>%dI' % n, u.mem_read(sp + 4, 4 * n)) if n else ()
+        self.os.append((at, args))
+        if at == 0x40100d86:                       # push: the view becomes the stack's top
+            view = struct.unpack('>I', u.mem_read(args[1], 4))[0]
+            u.mem_write(args[0] + 0x18, struct.pack('>I', NP))
+            u.mem_write(NP + 8, struct.pack('>I', view))
+        elif at == 0x400ffec6:                     # close: the MainScreen is the top again
+            u.mem_write(APP + 0x40 + 0x18, struct.pack('>I', N1))
+            u.mem_write(N1 + 8, struct.pack('>I', MAIN))
+        elif at == 0x4016efa4:
+            u.reg_write(UC_M68K_REG_D0, LEDMGR)
+        elif at == 0x40008220:
+            self.leds[args[1]] = (args[2], args[3])
 
     def call(self, fn, args):
         u = self.u
@@ -95,7 +130,7 @@ class Unit:
 
     def key(self, key, flags):
         self.u.mem_write(EVENT, b'\0' * 12 + struct.pack('>2I', key, flags))
-        return self.call(self.sym['pf_key'], [0, EVENT]) & 0xff
+        return self.call(self.sym['pf_key'], [APP, EVENT]) & 0xff
 
     def tick(self, n=1):
         for _ in range(n):
@@ -125,6 +160,15 @@ def start(image, sym, offs, version=21):
     u = Unit(image, sym)
     u.u.mem_write(HOST, struct.pack('>I', version) + b'\0' * 0x100)
     u.u.mem_write(HOST + offs[1], struct.pack('>I', INTEREST))
+    u.u.mem_write(HOST + offs[2], struct.pack('>I', STORAGE))
+    u.u.mem_write(STORAGE + offs[3], struct.pack('>I', ALLOC_AT))
+    m = APP + 0x40                                  # the view manager: the highest opaque view and the top are the MainScreen
+    u.u.mem_write(m + 0x1c, struct.pack('>I', N0))
+    u.u.mem_write(m + 0x18, struct.pack('>I', N1))
+    u.u.mem_write(N0 + 8, struct.pack('>I', MAIN))
+    u.u.mem_write(N1 + 8, struct.pack('>I', MAIN))
+    u.u.mem_write(MAIN, struct.pack('>I', MAIN_VT))
+    u.u.mem_write(0x40241ef4, struct.pack('>19I', *(0xc0de0000 + i for i in range(19))))   # the View vtable the module copies
     u.u.mem_write(UI, b'\0' * 0x40)
     u.u.mem_write(UI + offs[0], struct.pack('>I', HOST))
     u.u.mem_write(API, struct.pack('>2I', 3, UI))
@@ -403,6 +447,102 @@ def check_close(image, sym, offs):
     print('close: NO frees every key, takes its release once, trig keys are native again, draws nothing, reopens')
 
 
+def rd(u, at, n=1):
+    return struct.unpack('>%dI' % n, u.u.mem_read(at, 4 * n))
+
+
+def leds(u, handler=None):
+    u.leds = {}
+    u.call(u.sym['pf_view_leds'], [(ALLOC + 16 + 0x50) if handler is None else handler, 0, 0])
+    return u.leds
+
+
+def check_view(image, sym, offs):
+    u = opened(image, sym, offs)
+    ops = {a: args for a, args in u.os}
+    view, root = ALLOC + 16, ALLOC
+    assert [a for a, _ in u.os] == [0x400ffd6a, 0x400ffcb8, 0x40100d86, 0x4016dfac, 0x400ffe22]   # ctor, not opaque, push, release, dirty
+    assert ops[0x400ffcb8] == (view, 0) and ops[0x40100d86][0] == APP + 0x40 and ops[0x40100d86][2] == 0 and ops[0x400ffe22] == (view,)
+    assert bytes(u.u.mem_read(ops[0x400ffd6a][1], 8)) == b'PERF FX\0'
+    assert rd(u, root, 4) == (0x401c9910, 1, 1, view)                                 # the shared control block, owning the view
+    vt = sym['pf_vtable'] + 8
+    assert rd(u, view)[0] == vt
+    words = rd(u, sym['pf_vtable'], 19)
+    assert words[0] == 0xc0de0000 and words[3:] == tuple(0xc0de0000 + i for i in range(3, 19))   # copied from the View vtable
+    assert words[1] == sym['pf_type'] and words[2] == sym['pf_dispose']              # the module's type and destructor
+    assert rd(u, view + 0x50, 3) == (sym['pf_led_vtable'] + 8, 0, 0)                 # the LedHandler: its vptr and a clear claim mask
+    ledvt = rd(u, sym['pf_led_vtable'], 5)
+    assert ledvt == ((-0x50) & 0xffffffff, sym['pf_type'], sym['pf_led_nothing'], sym['pf_led_nothing'], sym['pf_view_leds'])
+    t = rd(u, sym['pf_type'], 8)
+    assert t[0] == 0x4024979c and t[2:] == (0, 2, 0x40241ebc, 2, 0x401c73a4, 0x5002)
+    assert bytes(u.u.mem_read(t[1], 13)) == b'10PerfFxView\0'
+    assert rd(u, APP + 0x40 + 0x18)[0] == NP and rd(u, NP + 8)[0] == view            # on top of the stack
+    print('view: one invisible view pushed over the MainScreen (OS constructor, not opaque, copied vtable, LedHandler at +50h)')
+
+    UNLIT, BLUE, ORANGE, RED, WHITE, YELLOW, GREEN, DIMRED = (1, 2), (2, 14), (2, 31), (2, 3), (2, 20), (2, 23), (2, 9), (2, 4)
+    want = [BLUE] * 4 + [ORANGE] * 5 + [UNLIT] + [RED] * 3 + [UNLIT] * 3
+    got = leds(u)
+    assert got == {k + 1: want[k] for k in range(16)}, got                           # bank 1, idle: by category
+    hold(u, 0); hold(u, 4)
+    got = leds(u)
+    assert got[1] == WHITE and got[5] == WHITE and got[2] == BLUE and got[10] == UNLIT   # held: white
+    u.key(KEY_FUNC, DOWN); rel(u, 0); rel(u, 4); u.key(KEY_FUNC, UP)                 # latched: yellow
+    got = leds(u)
+    assert got[1] == YELLOW and got[5] == YELLOW and got[3] == BLUE
+    u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP)                                       # bank 2: its own effects and latches
+    got = leds(u)
+    assert got[1] == BLUE and got[5] == ORANGE and got[8] == UNLIT and got[11] == RED and got[14] == UNLIT
+    u.key(KEY_PAGE, DOWN); u.key(KEY_PAGE, UP)
+    assert u.key(KEY_FUNC, DOWN) == 0                                                # FUNC alone: native, and the keys show the tracks
+    got = leds(u)
+    assert all(got[k] == GREEN for k in range(1, 13)) and got[13] == WHITE and got[14] == UNLIT and got[16] == UNLIT
+    u.key(trig(1), DOWN | 2); u.key(trig(1), UP | 2)                                 # track 2 out
+    got = leds(u)
+    assert got[2] == DIMRED and got[1] == GREEN
+    u.key(KEY_FUNC, UP)
+    assert leds(u)[1] == YELLOW                                                      # FUNC up: effects again
+    print('leds: bank 1 by category (blue jumps, orange ramps, red mutes, unlit gaps), white held, yellow latched, bank 2, tracks with FUNC down')
+
+    assert leds(u, handler=ALLOC + 16) == {}                                         # another handler: not ours
+    other = bytes(u.u.mem_read(NP + 8, 4))
+    u.u.mem_write(NP + 8, struct.pack('>I', OTHER))                                  # a menu is on top
+    assert leds(u) == {}
+    assert u.key(trig(5), DOWN) == 0 and u.key(KEY_NO, DOWN) == 0 and u.key(KEY_PLAY, DOWN) == 0
+    assert u.draw() > 0                                                              # the bar stays; only the keys pass
+    u.u.mem_write(NP + 8, other)                                                     # back on top
+    assert u.key(trig(5), DOWN) == 1 and rd(u, NP + 8)[0] == ALLOC + 16
+    u.key(trig(5), UP)
+    print('foreground: with another view on top no LED is set and the keys pass')
+
+    u.key(KEY_NO, DOWN)
+    assert u.os[-1] == (0x400ffec6, (ALLOC + 16,)) and leds(u) == {}                 # NO closes the view through the OS
+    u.key(KEY_NO, UP)
+
+    r = start(image, sym, offs)                                                      # the stack is not the MainScreen's: no view
+    r.u.mem_write(N1 + 8, struct.pack('>I', OTHER))
+    assert r.key(KEY_TRK, DOWN) == 0 and r.key(KEY_TRK, UP) == 0
+    r.tick(3)
+    assert r.key(KEY_TRK, DOWN) == 0 and r.key(KEY_TRK, UP) == 0 and r.draw() == 0
+    assert 0x40100d86 not in [a for a, _ in r.os]                                    # nothing pushed, nothing taken
+    r.u.mem_write(N1 + 8, struct.pack('>I', MAIN))
+    r.tick(1)
+    assert r.key(KEY_TRK, DOWN) == 0 and r.key(KEY_TRK, UP) == 0
+    r.tick(3)
+    assert r.key(KEY_TRK, DOWN) == 1                                                 # over the MainScreen: opens
+    print('open: only over the MainScreen; with another view on top the taps stay native and nothing is pushed')
+
+    d = opened(image, sym, offs)
+    hold(d, 0); hold(d, 10)
+    d.call(sym['pf_dispose'], [ALLOC + 16 + 4])                                      # another view's destructor: not ours
+    assert on(d)[1] == 1 << PITCH | 1 << NOTE_ACCEPT and d.key(trig(2), DOWN) == 1
+    d.call(sym['pf_dispose'], [ALLOC + 16])                                          # ours: the OS let go of the view
+    assert d.os[-1] == (0x400fffc0, (ALLOC + 16,))                                   # the base destructor runs
+    assert on(d) == (sym['pf_native'], 0) and d.pitch([60 << 16] * 12)[1] == [60 << 16] * 12
+    assert d.key(trig(3), DOWN) == 0 and d.draw() == 0 and leds(d) == {}             # closed: everything native again
+    assert d.key(trig(0), UP) == 1 and d.key(trig(0), UP) == 0                       # keys held then: their releases are ours, once
+    print('dispose: the OS letting go of the view ends the effects and the mode; the base destructor still runs')
+
+
 def main():
     a = argparse.ArgumentParser()
     a.add_argument('--cc', default=shutil.which(os.environ.get('ELEKLOADER_CROSS', 'm68k-elf-') + 'gcc'))
@@ -412,7 +552,7 @@ def main():
     image, sym = build(args.cc)
     offs = offsets(args.cc)
     for check in (check_init, check_open, check_keys, check_pitch, check_gate, check_latch, check_banks,
-                  check_include, check_close):
+                  check_include, check_close, check_view):
         check(image, sym, offs)
 
 

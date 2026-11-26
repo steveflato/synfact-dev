@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * perffx-st 0.3.2 (prototype): performance effects on the 16 trig keys. See README.md.
+ * perffx-st 0.4.0 (prototype): performance effects on the 16 trig keys. See README.md.
  *
  * Double-tap TRK to open (the first tap keeps its native action; the second
  * is taken, as the recorder does with SOUND). While it is open the 16 trig
@@ -16,8 +16,12 @@
  *   pitch  ST_NATIVE_PITCH (core 2.9.0-mt1, host API 21): the 12 tracks' Q16
  *          pitches (1.0 = a semitone), edited in place per audio block.
  *   gate   ST_NATIVE_NOTE_ACCEPT: a note-on of a gated track is skipped.
- * Not here yet: LED colours, stutter, bit crush, step effects, a screen of
- * its own, a kept track selection. */
+ * LEDs: while it is open the module owns an invisible view on the UI stack
+ * (made as arp-st makes its own) that is a LedHandler, so the 16 trig keys
+ * are lit by category: blue pitch jumps, orange ramps, red mutes, dark where
+ * a key has no effect; white while held, yellow when latched. With FUNC down
+ * they show the tracks instead: green in, dim red out, white = all.
+ * Not here yet: stutter, bit crush, step effects, a kept track selection. */
 #include <syntakt/modules.h>
 #include <syntakt/host.h>
 #include <syntakt/native.h>
@@ -35,6 +39,9 @@
 #define PF_NOTE_ON 1u
 
 #define fw_fillrect ((void (*)(void *,int,int,int,int,unsigned int))0x400f7fb6u)
+#define UI_CALL(a,t) ((t)(a))
+#define PF_VIEW_BYTES 0x50u         /* the view, then its LedHandler (vptr and a 64-bit claim mask) */
+#define PF_LED_BYTES 12u
 
 /* kind: 0 none, 1 jump (instant offset), 2 ramp to a target at a step per
  * audio block (1500 a second), 3 gate */
@@ -82,6 +89,10 @@ static unsigned int pf_phys __attribute__((section(".data"))) = 0;              
 static unsigned int pf_latch __attribute__((section(".data"))) = 0;              /* bit id: latched on */
 static unsigned int pf_down __attribute__((section(".data"))) = 0;              /* bit k: trig key k+1 went down while open: its release is ours */
 static unsigned int pf_bank __attribute__((section(".data"))) = 0;
+static unsigned int pf_func_down __attribute__((section(".data"))) = 0;          /* FUNC is down (seen on every key event) */
+static unsigned char *pf_view __attribute__((section(".data"))) = 0;             /* the LED view, while open */
+static unsigned char *pf_manager __attribute__((section(".data"))) = 0;
+static unsigned int pf_vtable[19] __attribute__((section(".data")));
 static unsigned int pf_func __attribute__((section(".data"))) = 0;               /* bit k: that press was a track toggle */
 static unsigned char pf_key_fx[16] __attribute__((section(".data")));            /* the effect id key k started */
 static volatile unsigned int pf_include __attribute__((section(".data"))) = 0xfffu;  /* bit t: track t+1 is affected */
@@ -180,12 +191,136 @@ static unsigned int be32(const unsigned char *p)
     return (unsigned int)p[0] << 24 | (unsigned int)p[1] << 16 | (unsigned int)p[2] << 8 | p[3];
 }
 
+/* The LED view, made as arp-st's (mods/arp-st/view.c): a View followed by a
+ * LedHandler, on the UI stack, not opaque and drawing nothing, so the
+ * MainScreen stays visible and keys it does not take pass through. Each UI
+ * frame (400094f4) clears the key LEDs and the stack offers them from the top
+ * down; the first setter of an LED wins (40008220). */
+static const char pf_type_name[] = "10PerfFxView";
+static const unsigned int pf_type[8] = {0x4024979cu, (unsigned int)pf_type_name, 0, 2,
+    0x40241ebcu, 2u, 0x401c73a4u, (PF_VIEW_BYTES << 8) | 2u};
+
+static unsigned int pf_word(const void *v, unsigned int off)
+{
+    return *(const unsigned int *)((const unsigned char *)v + off);
+}
+static unsigned char *pf_stack_top(unsigned char *manager)
+{
+    unsigned char *n = *(unsigned char **)(manager + 0x18);
+    return n && n != manager + 0x14 ? *(unsigned char **)(n + 8) : 0;
+}
+static int pf_foreground(void)
+{
+    return pf_view && pf_manager && !pf_view[0x30] && pf_stack_top(pf_manager) == pf_view;
+}
+
+/* A palette of the stock table (see arp-st): 2 unlit, 3 red, 4 dim red, 9 green,
+ * 14 blue, 20 white, 23 yellow, 31 orange. Mode 1 forces unlit, 2 takes the palette. */
+static unsigned int pf_palette(unsigned int k, unsigned int *mode)
+{
+    unsigned int id = pf_bank * 16u + k;
+    *mode = 2;
+    if (pf_func_down) {                            /* FUNC: the tracks the effects touch */
+        if (k < PF_TRACKS) return (pf_include >> k & 1u) ? 9u : 4u;
+        if (k == PF_TRACKS) return 20u;
+        *mode = 1;
+        return 2u;
+    }
+    if (!PF_FX(id)->kind) { *mode = 1; return 2u; }
+    if (pf_latch >> id & 1u) return 23u;           /* latched */
+    if (pf_phys >> id & 1u) return 20u;            /* held */
+    return PF_FX(id)->kind == 1 ? 14u : PF_FX(id)->kind == 2 ? 31u : 3u;
+}
+static void pf_led_nothing(void *handler) { (void)handler; }
+static void pf_view_leds(void *handler, void *claimed, void *offered)
+{
+    unsigned int k, mode, palette;
+    void *mgr;
+    (void)claimed; (void)offered;
+    if (!pf_view || handler != pf_view + PF_VIEW_BYTES || !pf_open || !pf_foreground()) return;
+    mgr = UI_CALL(0x4016efa4u, void *(*)(void))();
+    for (k = 0; k < 16; k++) {
+        palette = pf_palette(k, &mode);
+        UI_CALL(0x40008220u, void (*)(void *, unsigned int, unsigned int, unsigned int))(mgr, k + 1, mode, palette);
+    }
+}
+static const unsigned int pf_led_vtable[5] = {(unsigned int)-(int)PF_VIEW_BYTES, (unsigned int)pf_type,
+    (unsigned int)pf_led_nothing, (unsigned int)pf_led_nothing, (unsigned int)pf_view_leds};
+
+static void pf_forget(void *v)
+{
+    if (v == pf_view) { pf_view = 0; pf_manager = 0; }
+}
+/* The view's destructor slot: the stack let go of it (closed here, or by the
+ * OS). The effects end with it. */
+static void pf_dispose(void *v)
+{
+    if (v == pf_view) {
+        pf_open = 0;
+        pf_phys = 0;
+        pf_latch = 0;
+        pf_forget(v);
+        pf_refresh();
+    }
+    UI_CALL(0x400fffc0u, void (*)(void *))(v);
+}
+
+/* MainScreen::show publishes these persistent children; the stack top is one
+ * of them (or the MainScreen) when nothing else is open (arp-st's arp_can_open). */
+static int pf_can_open(void *app, unsigned char *main)
+{
+    static const unsigned short children[] = {0x220, 0xc0, 0xf0, 0x218, 0xe8, 0x228};
+    unsigned char *top = pf_stack_top((unsigned char *)app + 0x40);
+    unsigned int i;
+    if (!top) return 0;
+    if (top == main) return 1;
+    for (i = 0; i < sizeof(children) / sizeof(children[0]); i++)
+        if (top == *(unsigned char **)(main + children[i])) return 1;
+    return 0;
+}
+
+static int pf_open_view(void *app)
+{
+    unsigned char *m = (unsigned char *)app + 0x40, *n = *(unsigned char **)(m + 0x1c), *main, *root, *v;
+    void *pair[2];
+    unsigned int i;
+    if (pf_view || !pf_host || !pf_host->storage) return 0;
+    main = n && n != m + 0x14 ? *(unsigned char **)(n + 8) : 0;                /* the highest opaque view */
+    if (!main || pf_word(main, 0) != 0x401c849cu || !pf_can_open(app, main)) return 0;
+    root = pf_host->storage->alloc(16 + PF_VIEW_BYTES + PF_LED_BYTES);
+    if ((unsigned int)root < 0x40000000u) return 0;
+    *(unsigned int *)root = 0x401c9910u; *(unsigned int *)(root + 4) = 1; *(unsigned int *)(root + 8) = 1;
+    v = root + 16;
+    *(void **)(root + 12) = v;
+    UI_CALL(0x400ffd6au, void (*)(void *, const char *))(v, "PERF FX");
+    UI_CALL(0x400ffcb8u, void (*)(void *, unsigned int))(v, 0);                  /* not opaque */
+    for (i = 0; i < 19; i++) pf_vtable[i] = ((const unsigned int *)0x40241ef4u)[i];
+    pf_vtable[1] = (unsigned int)pf_type;
+    pf_vtable[2] = (unsigned int)pf_dispose;
+    *(unsigned int **)v = pf_vtable + 2;
+    *(const unsigned int **)(v + PF_VIEW_BYTES) = pf_led_vtable + 2;
+    *(unsigned int *)(v + PF_VIEW_BYTES + 4) = 0;
+    *(unsigned int *)(v + PF_VIEW_BYTES + 8) = 0;
+    pf_view = v;
+    pf_manager = m;
+    pair[0] = v; pair[1] = root;
+    UI_CALL(0x40100d86u, unsigned int (*)(void *, void *, unsigned int))(m, pair, 0);   /* push */
+    UI_CALL(0x4016dfacu, void (*)(void *))(pair + 1);
+    UI_CALL(0x400ffe22u, void (*)(void *))(v);
+    return 1;
+}
+
 static void pf_close(void)
 {
+    unsigned char *v = pf_view;
     pf_open = 0;
     pf_phys = 0;
     pf_latch = 0;
     pf_refresh();
+    if (v) {
+        UI_CALL(0x400ffec6u, void (*)(void *))(v);
+        pf_forget(v);
+    }
 }
 
 /* ev_key, UI task. flags: bit 0 down, bit 1 FUNC held, bit 3 repeat; a release has bit 0 clear. */
@@ -194,7 +329,7 @@ int pf_key(void *brain, const void *ev)
     const unsigned char *e = ev;
     unsigned int key = be32(e + 12), flags = be32(e + 16);
     int down = flags & 1u, repeat = (flags & 8u) != 0;
-    (void)brain;
+    if (key == PF_KEY_FUNC && !repeat) pf_func_down = down;      /* for the LEDs; the key itself is handled below */
 
     if (!down) {                                   /* releases */
         if (key < 32 && (pf_swallow >> key & 1u)) { pf_swallow &= ~(1u << key); return 1; }
@@ -215,6 +350,7 @@ int pf_key(void *brain, const void *ev)
         if (repeat) return 0;
         if (pf_trk_pending && pf_ticks - pf_trk_at <= PF_DOUBLE_TICKS) {
             pf_trk_pending = 0;
+            if (!pf_open_view(brain)) return 0;    /* something else is open: stays native */
             pf_open = 1;
             pf_swallow |= 1u << PF_KEY_TRK;
             pf_dirty = 1;
@@ -224,6 +360,7 @@ int pf_key(void *brain, const void *ev)
         pf_trk_pending = 1;
         return 0;
     }
+    if (!pf_foreground()) return 0;                /* a menu or the track selection is on top: its keys */
     if (key == PF_KEY_NO) {                        /* closes, turns everything off, keeps NO's release */
         if (!repeat) { pf_swallow |= 1u << PF_KEY_NO; pf_close(); }
         return 1;
