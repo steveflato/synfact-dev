@@ -118,13 +118,40 @@ The Kit tail (as LFO3's `PLH1` record) is per Kit, not global. The HZFS store
 1. **The FX track is the lane.** A state is placed as a lock of one
    "STATE" value on an FX track trig. Trig length, conditions, probability,
    page speed and the trig page all come from the native sequencer, as
-   Vedanta asked, and a pattern spends one lock parameter, not one per
-   parameter of the state. Needs: a lockable ID the FX track accepts for
-   "STATE" (not found yet), and reading the playing trig's lock at its step.
+   Vedanta asked, and a pattern spends one lock lane, not one per parameter
+   of the state.
 2. **The module's own 16 steps.** Independent of the FX track, but trig
    length, conditions and page speed would all have to be rebuilt.
 
-Option 1 fits the design better; it is the next thing to look into.
+Option 1 is the choice (26 Nov).
+
+### A lane for STATE: the shared lock lanes (state-st)
+
+The bank already has extra lock lanes beyond the native 71 per track: the
+`state-st` service (sources in `mods/lfo3-st/locks/`) keeps sparse lanes
+`0x58..0x67` per track, saved with the pattern. LFO3 uses `0x58..0x5F`, ARP
+`0x60..0x63`; `0x64..0x67` are reserved and unused (`arp-st/locks.h`). On the
+FX track no module uses any of them.
+
+- Writing and reading: `lfo3_pattern_set/get(model, track, step, slot, value)`
+  accept track 0..12 and slots `0x58..0x67`, so `(12, step, 0x64)` can hold a
+  state number on an FX track trig today. Removing a lock is value `-1`.
+- Budget: native lanes plus sparse lanes share a limit of 80 per pattern
+  (`lfo3_pattern_set_body`), so STATE costs one lane per pattern.
+- Playback: `synfact_extra_locks(track, lock, out)` hands a trig's sparse
+  locks to a module (ARP reads its lanes this way), but it returns nothing for
+  track 12 (`if(track>=12 ...)` in `locks/events.c`), although the store, the
+  active and start-of-play tables are sized for 13 tracks and the FX track has
+  its own restore (`lfo3_events_fx_restore`). Accepting track 12 there, and
+  handing out lanes `0x64..0x67`, is the change STATE needs. It is a change to
+  a shared service used by LFO3 and ARP: core-first
+  (docs/CORE-CONTRIBUTING.md), with a test for both tracks, and offered to
+  GSM.
+- Editing: the held-trig display and page LEDs know LFO3's and ARP's lanes
+  only (`lfo3_ui_preview`, `lfo3_page_locks`); STATE needs its own entry
+  there, or its own view (the pool list on trig + knob).
+
+Not tried on a unit; read from the sources.
 
 ## Open
 
@@ -132,5 +159,6 @@ Option 1 fits the design better; it is the next thing to look into.
   the working copy and AUDIO side (index 12 by the finding above; not run).
 - Whether restore is free (working copy rebuilt each block) or needs a saved
   copy.
-- A lockable ID for "STATE" on the FX track, and where page speed is stored.
+- STATE's lane: `synfact_extra_locks` for track 12 (above). Where page speed
+  is stored (only needed if the lane is not the FX track).
 - The HZFS store for the pool: format and when to write it.
