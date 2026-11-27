@@ -36,8 +36,10 @@ change; ask before guessing an address.
   blocks (then a held effect must restore it). PUBLISH runs after the
   modulation, so a write there should not be undone before the send, but this
   is not verified.
-- The FX track (delay, reverb, chorus) values: `kit.h` covers the 12 Sounds
-  only; where the FX track's values live is not recorded.
+- The FX track's values: found (read from the code, not run); see
+  [PERFFX-PLOCK-POOL.md](PERFFX-PLOCK-POOL.md), "Firmware findings". In short:
+  the Kit's 13th record at `+0xDCE`, 71 halfword slots, mirrored as track 12
+  at `0x80002874`.
 - Analog tracks 9..12 carry the same rows? Analog voices are on a different
   path (see `poly-st`); not recorded.
 
