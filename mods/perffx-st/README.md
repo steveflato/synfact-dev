@@ -107,6 +107,24 @@ SETTINGS > SYSTEM INFO on, open Perf FX, hide the bar (TRK + trig 16), and
 compare `CPU M` with no effect held and with effects held or latched (FUNC
 latches them, so the hands are free). Its value updates about once a second.
 
+Measured by the owner on the unit (0.5.3, 27 Nov 2026), SYSTEM INFO's
+readout, 1 % steps:
+
+| state | CPU M | CPU A |
+|---|---:|---:|
+| sequencer stopped, no effect | 74 % | 59 % |
+| sequencer playing, no effect | 81 % | 82 % |
+| playing, OCT UP | 82 % | 82 % |
+| playing, TAPE STOP | 82 % | 81 % |
+| playing, OCT UP + TAPE STOP | 82 % | 81 % |
+| playing, every effect but the mutes | 82 % | 80 % |
+
+Perf FX adds about one point of MAIN, within the estimate; stacking more
+effects shows no further change at this resolution. AUDIO does not change
+(Perf FX does not run there); its 1–2 point dips are noise or the voices'
+work moving with the pitch. The pattern played is the owner's; a heavier one
+leaves less headroom.
+
 ## Hand-off to an audio engine
 
 `perffx.h` declares `pf_state`, which the key side keeps current: whether the
