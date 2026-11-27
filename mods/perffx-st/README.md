@@ -1,4 +1,4 @@
-# perffx-st: performance effects on the trig keys (prototype 0.4.0)
+# perffx-st: performance effects on the trig keys (prototype 0.5.3)
 
 A test build for the design in Discussion #11. Not for a pull request yet.
 
@@ -40,6 +40,12 @@ keeps the effect it started.
 include or exclude that track for the pitch effects and the mutes. Closing the
 mode (NO) puts all 12 back in. While the mode is open TRK is ours; FUNC + PAGE
 and FUNC + trig keys stay the OS's. 
+
+**Hide the bar.** Hold TRK and tap trig 16 to hide the PERF FX bar (trig 16
+lights cyan while TRK is held); tap again to show it. The effects keep
+working. It is there so SYSTEM INFO's CPU readout, which shares the bar's
+place in the header, can be read while effects play. Closing the mode shows
+the bar again next time.
 **How.** Pitch effects edit the 12 tracks' Q16 pitches at `ST_NATIVE_PITCH`
 (core 2.9.0-mt1, host API 21), once per audio block, with the ramps counted in
 blocks (1500 a second). The mutes skip note-ons of the gated tracks at
@@ -59,7 +65,7 @@ declared to the core only while one of its effects is on.
 | yellow | the effect is latched |
 
 With TRK held, keys 1 to 12 show the tracks instead: green is affected, dim
-red is left out. NO resets them.
+red is left out. NO resets them. Trig 16 is cyan while the bar is hidden.
 
 The LEDs come from an invisible view the module pushes on the UI stack when it
 opens, made as arp-st makes its own: a View followed by a LedHandler, not
@@ -76,6 +82,30 @@ in semitones, not a real tape curve.
 
 `tests/test_st_perffx_module.py` runs the compiled module in Unicorn, with the
 OS's view routines stubbed.
+
+## CPU load
+
+**Estimated in the emulator** (0.5.2 code; instructions counted per call,
+converted with the project's model of 0.85 cycles an instruction plus 40 per
+cold 16-byte line, at 250 MHz, 166,667 cycles a block; see
+[STOCK-MAIN-CPU-PROFILE](../../docs/STOCK-MAIN-CPU-PROFILE.md)). "Cold" counts
+every code and data line the call touches as a miss.
+
+| active | called | instructions | warm | cold |
+|---|---|---:|---:|---:|
+| nothing (mode open or closed) | never | 0 | 0 % | 0 % |
+| one jump (OCT UP), 12 tracks | each audio block | 412 | 0.21 % | 0.81 % |
+| one ramp (TAPE STOP) | each audio block | 448 | 0.23 % | 0.92 % |
+| one mute (MUTE ALL) | each note-on | 370 | 0.19 % | 0.67 % |
+| bank 1's 12 effects at once | each block + each note | 678 + 484 | 0.35 % | 1.40 % |
+
+The core only calls the module while an effect is on (checked: interest
+goes to zero on release). Not counted: the core's own dispatch.
+
+**On the unit.** Build the bank with SYSTEM INFO (`system-info-smz-st`), turn
+SETTINGS > SYSTEM INFO on, open Perf FX, hide the bar (TRK + trig 16), and
+compare `CPU M` with no effect held and with effects held or latched (FUNC
+latches them, so the hands are free). Its value updates about once a second.
 
 ## Hand-off to an audio engine
 

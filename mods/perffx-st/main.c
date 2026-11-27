@@ -91,6 +91,7 @@ static unsigned int pf_latch __attribute__((section(".data"))) = 0;             
 static unsigned int pf_down __attribute__((section(".data"))) = 0;              /* bit k: trig key k+1 went down while open: its release is ours */
 static unsigned int pf_bank __attribute__((section(".data"))) = 0;
 static unsigned int pf_last __attribute__((section(".data"))) = 0;               /* the effect id last pressed or latched: the one the bar names */
+static unsigned int pf_quiet __attribute__((section(".data"))) = 0;             /* the bar is hidden (TRK + trig 16), so SYSTEM INFO shows */
 static unsigned int pf_trk_down __attribute__((section(".data"))) = 0;           /* TRK is held in the mode: the trig keys pick tracks */
 static unsigned char *pf_view __attribute__((section(".data"))) = 0;             /* the LED view, while open */
 static unsigned char *pf_manager __attribute__((section(".data"))) = 0;
@@ -246,6 +247,7 @@ static unsigned int pf_palette(unsigned int k, unsigned int *mode)
     *mode = 2;
     if (pf_trk_down) {                             /* TRK held: the tracks the effects touch */
         if (k < PF_TRACKS) return (pf_include >> k & 1u) ? 9u : 4u;
+        if (k == 15 && pf_quiet) return 25u;       /* trig 16 cyan: the bar is hidden */
         *mode = 1;
         return 2u;
     }
@@ -342,6 +344,7 @@ static void pf_close(void)
     pf_phys = 0;
     pf_latch = 0;
     pf_trk_down = 0;
+    pf_quiet = 0;
     pf_include = 0xfffu;                           /* every track is back in the next time */
     pf_refresh();
     if (v) {
@@ -421,6 +424,7 @@ int pf_key(void *brain, const void *ev)
         if (pf_trk_down) {                         /* TRK + trig: which tracks the effects touch */
             pf_func |= 1u << k;
             if (k < PF_TRACKS) { pf_include ^= 1u << k; pf_publish(); }
+            else if (k == 15) pf_quiet ^= 1u;      /* TRK + trig 16: hide the bar, e.g. to read SYSTEM INFO's CPU */
             pf_dirty = 1;
             return 1;
         }
@@ -489,7 +493,7 @@ void pf_draw(void *bmp, void *ctrl)
     unsigned int k, t, n = 0, id, inc = pf_include;
     char head[10] = "PERF FX 1", latched[3] = "L1";
     (void)ctrl;
-    if (!pf_open) return;
+    if (!pf_open || pf_quiet) return;
     head[8] = (char)('1' + pf_bank);
     fw_fillrect(bmp, 18, 54, 127, 63, 0);
     pf_text(bmp, 20, 60, head);

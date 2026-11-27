@@ -469,7 +469,20 @@ def check_include(image, sym, offs):
     assert u.key(trig(14), DOWN) == 1 and u.key(trig(14), UP) == 1 and on(u) == (sym['pf_native'], 0)   # TRK + 15: nothing
     u.key(KEY_TRK, UP)
     assert u.draw() > 0
-    print('include: TRK held + trig 1..12 toggles a track for pitch and mutes, closing brings all back, FUNC + PAGE stays native, no effect starts')
+    u.key(KEY_TRK, DOWN)                                                             # TRK + trig 16: the bar hides, effects go on
+    assert u.key(trig(15), DOWN) == 1 and u.key(trig(15), UP) == 1
+    u.key(KEY_TRK, UP)
+    assert u.draw() == 0
+    hold(u, 0)
+    assert u.pitch(base)[1] == [p + 12 * SEMI for p in base]
+    rel(u, 0)
+    u.key(KEY_TRK, DOWN); u.key(trig(15), DOWN); u.key(trig(15), UP); u.key(KEY_TRK, UP)
+    assert u.draw() > 0                                                              # and shows again
+    u.key(KEY_TRK, DOWN); u.key(trig(15), DOWN); u.key(trig(15), UP); u.key(KEY_TRK, UP)
+    u.key(KEY_NO, DOWN); u.key(KEY_NO, UP)                                           # closing shows it the next time
+    u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP); u.tick(3); u.key(KEY_TRK, DOWN); u.key(KEY_TRK, UP)
+    assert u.draw() > 0
+    print('include: TRK held + trig 1..12 toggles a track for pitch and mutes, closing brings all back, FUNC + PAGE stays native, no effect starts; TRK + trig 16 hides the bar')
 
 
 def check_close(image, sym, offs):
@@ -541,6 +554,10 @@ def check_view(image, sym, offs):
     u.key(trig(1), DOWN); u.key(trig(1), UP)                                         # track 2 out
     got = leds(u)
     assert got[2] == DIMRED and got[1] == GREEN
+    u.key(trig(15), DOWN); u.key(trig(15), UP)                                       # TRK + trig 16: the bar hides
+    assert leds(u)[16] == CYAN
+    u.key(trig(15), DOWN); u.key(trig(15), UP)                                       # and shows again
+    assert leds(u)[16] == UNLIT
     u.key(KEY_TRK, UP)
     assert leds(u)[1] == YELLOW                                                      # TRK up: effects again
     print('leds: bank 1 by category (blue jumps, orange ramps, red mutes, unlit gaps), white held, yellow latched, bank 2, tracks with TRK held')
